@@ -524,95 +524,196 @@ class ShipstationConnection:
         return "ups_3_day_select", notes, temperature_high, dayOffset
 
     def run(self):
-            orders = self.get_all_orders()
+        orders = self.get_all_orders()
+        subscriptions = Subscriptions(self)
 
-            for order in orders:
-                print(f"\nChecking order: {order['orderNumber']} - Status: {order['orderStatus']} - Items: {len(order['items'])} - Weight: {order['weight']['value']}")
-                #print(order)
+        for order in orders:
+            print(
+                f"\nChecking order: {order['orderNumber']} - Status: {order['orderStatus']} - Items: {len(order['items'])} - Weight: {order['weight']['value']}")
 
-                # if order['orderNumber'] != "":
-                #     continue
+            # Process subscription orders first
+            subscription_processed = subscriptions.process_subscription_orders(order)
 
-                tags = order.get('tagIds', [])
-                items = order['items']
-                orderKey = order['orderKey']
-                orderId = order['orderId']
-                orderNumber = order['orderNumber']
-                orderDate = order['orderDate']
-                if not tags:
-                    tags = []
+            if subscription_processed:
+                print(
+                    f"Processed subscription order {order['orderNumber']}. Proceeding with regular order updates for the original order.")
+            else:
+                print(
+                    f"No subscription items found in order {order['orderNumber']}. Proceeding with normal processing.")
 
-                # Determine the best shipping service and any special notes based on temperature
-                selected_service, notes, temp, shipByDays = self.determine_best_shipping(order)
+            # Continue with regular order processing, including for the modified original order
+            tags = order.get('tagIds', [])
+            items = order['items']
+            orderKey = order['orderKey']
+            orderId = order['orderId']
+            orderNumber = order['orderNumber']
+            orderDate = order['orderDate']
 
-                if selected_service is None:
-                    selected_service = self.shipping_service  # Use default if not specified
+            # Determine the best shipping service and any special notes based on temperature
+            selected_service, notes, temp, shipByDays = self.determine_best_shipping(order)
 
-                # Check REPLACEMENTS
-                if self.is_replacement_order(order):
-                    print("Order %s is a replacement - Processing accordingly." % order['orderNumber'])
-                    tags.append(25911)
-                    if 30806 in tags:  # Remove the flag to process the order as a replacement
-                        tags.remove(30806)
-                    items = self.remove_nonliving_items(order)
-                    if not items:
-                        print("NO ITEMS IN ORDER - JUST SKIPPING IT!")
-                        continue
+            if selected_service is None:
+                selected_service = self.shipping_service  # Use default if not specified
 
-                    self.cancel_order(order['orderId'])
-                    shipByDays = -5
-                    orderKey = None
-                    orderId = None
-                    orderNumber = order['orderNumber'] + "-R"
-                    orderDate = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S.%f000")  # Sets it as if the order was placed 5 days ago to prioritize the replacements.
-                    notes += " [REPLACEMENT - ADD 3x FREE STEMS]"
+            # Check REPLACEMENTS
+            if self.is_replacement_order(order):
+                print(f"Order {orderNumber} is a replacement - Processing accordingly.")
+                tags.append(25911)
+                if 30806 in tags:  # Remove the flag to process the order as a replacement
+                    tags.remove(30806)
+                items = self.remove_nonliving_items(order)
+                if not items:
+                    print("NO ITEMS IN ORDER - JUST SKIPPING IT!")
+                    continue
+
+                self.cancel_order(orderId)
+                shipByDays = -5
+                orderKey = None
+                orderId = None
+                orderNumber = f"{orderNumber}-R"
+                orderDate = (datetime.now() - timedelta(days=5)).strftime(
+                    "%Y-%m-%dT%H:%M:%S.%f000")  # Sets it as if the order was placed 5 days ago to prioritize the replacements.
+                notes += " [REPLACEMENT - ADD 3x FREE STEMS]"
+
+            # If the order is more than 6 days old (AND IS NOT NONLIVING), add stems for delay
+            elif not self.nonliving:
+                if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
+                    print("Order is late!")
+                    notes += " [ADD 3x STEMS FOR DELAY]"
+                    shipByDays -= 1
+
+            # Add a reminder if there is stuff with more than 1 quantity
+            multipleItemReminder = ""
+            multipleItemCount = sum(1 for item in items if item['quantity'] > 1)
+            if multipleItemCount == 1:
+                multipleItemReminder = f"Note: {multipleItemCount} item has a quantity of 2 or more!"
+            if multipleItemCount > 1:
+                multipleItemReminder = f"Note: {multipleItemCount} items have a quantity of 2 or more!"
+
+            # Update the order with the selected shipping service and any notes
+            success = self.update_order(
+                order_id=orderId,
+                order_key=orderKey,
+                order_number=orderNumber,
+                order_date=orderDate,
+                order_status=order['orderStatus'],
+                bill_to=order['billTo'],
+                ship_to=order['shipTo'],
+                items=items,
+                tags=tags,
+                storeId=order.get('advancedOptions', {}).get('storeId'),
+                weight=order['weight'],
+                temp=temp,
+                source=order.get('advancedOptions', {}).get('source'),
+                shipByDays=shipByDays,
+                custom3=multipleItemReminder,
+                email=order['customerEmail'],
+                requestedShipping=order['requestedShippingService'],
+                shipping_service=selected_service,  # Pass the selected shipping service
+                notes=notes  # Pass any notes such as "Include Ice Pack" or "Include Heat Pack"
+            )
+
+            if success:
+                print(f"Order {order['orderNumber']} updated with shipping service: {selected_service} \n")
+            else:
+                print(f"Failed to update shipping service for order {order['orderNumber']}")
+
+        return "Done!"
 
 
-                # If the order is more than 6 days old (AND IS NOT NONLIVING), add stems for delay
-                elif not shipstation.nonliving:
-                    if datetime.strptime(order['orderDate'], "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(6)) < datetime.now():
-                        print("Order is late!")
-                        notes += " [ADD 3x STEMS FOR DELAY]"
-                        shipByDays -= 1
+class Subscriptions:
+    def __init__(self, shipstation_connection):
+        self.shipstation = shipstation_connection
+        self.subscription_skus = ["SUB3", "SUB6", "SUB9", "SUB12"]
 
-                # Add a reminder if there is stuff with more than 1 quantity
-                multipleItemReminder = ""
-                multipleItemCount = sum(1 for item in order['items'] if item['quantity'] > 1)
-                if multipleItemCount == 1:
-                    multipleItemReminder = "Note: %s item has a quantity of 2 or more!" % multipleItemCount
-                if multipleItemCount > 1:
-                    multipleItemReminder = "Note: %s items have a quantity of 2 or more!" % multipleItemCount
+    def process_subscription_orders(self, order):
+        subscription_item = self._find_subscription_item(order['items'])
+        if subscription_item:
+            months = int(subscription_item['sku'].replace('SUB', ''))
 
-                # Update the order with the selected shipping service and any notes
-                success = self.update_order(
-                    order_id=orderId,
-                    order_key=orderKey,
-                    order_number=orderNumber,
-                    order_date=orderDate,
+            # Update the original order: remove subscription item and add "SUBBUNDLE"
+            original_items = [item for item in order['items'] if item['sku'] not in self.subscription_skus]
+            original_items.append({
+                "sku": "SUBBUNDLE",
+                "name": "Subscription Bundle",
+                "quantity": 1,
+                "unitPrice": 0.00
+            })
+
+            # Update the original order in Shipstation
+            update_success = self.shipstation.update_order(
+                order_id=order['orderId'],
+                order_key=order['orderKey'],
+                order_number=order['orderNumber'],
+                order_date=order['orderDate'],
+                order_status=order['orderStatus'],
+                bill_to=order['billTo'],
+                ship_to=order['shipTo'],
+                items=original_items,
+                tags=order.get('tagIds', []).append(26005),
+                storeId=order.get('advancedOptions', {}).get('storeId'),
+                weight=order['weight'],
+                temp="",
+                source=order.get('advancedOptions', {}).get('source'),
+                shipByDays=0,
+                custom3="",
+                email=order['customerEmail'],
+                requestedShipping=order['requestedShippingService'],
+                shipping_service=self.shipstation.shipping_service,  # Default shipping service
+                notes=""  # No special notes
+            )
+
+            if not update_success:
+                print(f"Failed to update the original order {order['orderNumber']}.")
+                return False
+
+            print(f"Original order {order['orderNumber']} updated successfully with subscription changes.")
+
+            # Create subsequent orders for each month
+            for month in range(months):
+                sub_order_number = f"{order['orderNumber']}-SUB-{month + 1}"
+                order_date = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f000')
+                sub_items = [
+                    {
+                        "sku": "SUBBUNDLE",
+                        "name": "Subscription Bundle",
+                        "quantity": 1,
+                        "unitPrice": 0.00
+                    }
+                ]
+
+                # Create new order in Shipstation
+                success, new_order_id = self.shipstation.create_order(
+                    order_key=order['orderKey'],
+                    new_order_number=sub_order_number,
+                    order_date=order_date,
                     order_status=order['orderStatus'],
-                    bill_to=order['billTo'],
-                    ship_to=order['shipTo'],
-                    items=items,
-                    tags=tags,
-                    storeId=order.get('advancedOptions', {}).get('storeId'),
-                    weight=order['weight'],
-                    temp=temp,
-                    source=order.get('advancedOptions', {}).get('source'),
-                    shipByDays=shipByDays,
-                    custom3=multipleItemReminder,
+                    address=order['shipTo'],
+                    tags=[26005],
                     email=order['customerEmail'],
-                    requestedShipping=order['requestedShippingService'] ,
-                    shipping_service=selected_service,  # Pass the selected shipping service
-                    notes=notes  # Pass any notes such as "Include Ice Pack" or "Include Heat Pack"
+                    store_id=order.get('advancedOptions', {}).get('storeId'),
+                    items=sub_items
                 )
 
-                if success:
-                    print(f"Order {order['orderNumber']} updated with shipping service: {selected_service} \n")
-                else:
-                    print(f"Failed to update shipping service for order {order['orderNumber']}")
+                if not success:
+                    print(f"Failed to create order {sub_order_number}.")
+                    continue
 
-            return "Done!"
 
+                # Delay the new orders as required
+                if month > 0:
+                    delay_days = month * 30
+                    self.shipstation.delay_order(new_order_id, delay_days)
+
+            return True
+
+        return False
+
+    def _find_subscription_item(self, items):
+        for item in items:
+            if item['sku'] in self.subscription_skus:
+                return item
+        return None
 
 
 if __name__ == "__main__":
