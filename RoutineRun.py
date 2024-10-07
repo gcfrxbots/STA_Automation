@@ -643,9 +643,9 @@ class Subscriptions:
             })
 
             tags = order.get('tagIds', [])
-            if not tags:
+            if tags is None:
                 tags = []
-            tags = tags.append(26005)
+            tags.append(26005)  # Add the subscription tag to the original order
 
             # Update the original order in Shipstation
             update_success = self.shipstation.update_order(
@@ -689,28 +689,37 @@ class Subscriptions:
                     }
                 ]
 
-                # Create new order in Shipstation
-                success, new_order_id = shipstation.create_order(
+                # Create the new order for the subscription month
+                success = self.shipstation.update_order(
+                    order_id=None,  # No existing order ID since this is a new order
                     order_key=order['orderKey'],
-                    new_order_number=sub_order_number,
+                    order_number=sub_order_number,
                     order_date=order_date,
                     order_status=order['orderStatus'],
-                    address=order['shipTo'],
-                    tags=[26005],
+                    bill_to=order['billTo'],
+                    ship_to=order['shipTo'],
+                    items=sub_items,
+                    tags=[26005],  # Tagging the new order as part of the subscription
+                    storeId=order.get('advancedOptions', {}).get('storeId'),
+                    weight=order['weight'],
+                    temp="",
+                    source=order.get('advancedOptions', {}).get('source'),
+                    shipByDays=0,
+                    custom3="",
                     email=order['customerEmail'],
-                    store_id=order.get('advancedOptions', {}).get('storeId'),
-                    items=sub_items
+                    requestedShipping=order['requestedShippingService'],
+                    shipping_service=self.shipstation.shipping_service,  # Default shipping service
+                    notes=""  # No special notes
                 )
 
                 if not success:
                     print(f"Failed to create order {sub_order_number}.")
                     continue
 
-
                 # Delay the new orders as required
                 if month > 0:
                     delay_days = month * 30
-                    self.shipstation.delay_order(new_order_id, delay_days)
+                    self.shipstation.delay_order(order_id=sub_order_number, delay_days=delay_days)
 
             return True
 
