@@ -695,8 +695,9 @@ class Subscriptions:
             print(f"Original order {order['orderNumber']} updated successfully with subscription changes.")
 
             # Create subsequent orders for each month
-            for month in range(months):
-                sub_order_number = f"{order['orderNumber']}-SUB-{month + 1}"
+            for month in range(2, months):
+                print(month)
+                sub_order_number = f"{order['orderNumber']}-SUB-{month}"
                 order_date = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f000')
                 sub_items = [
                     {
@@ -710,7 +711,7 @@ class Subscriptions:
                 # Create the new order for the subscription month
                 success, order_id = self.shipstation.update_order(
                     order_id=None,  # No existing order ID since this is a new order
-                    order_key=order['orderKey'],
+                    order_key=None,
                     order_number=sub_order_number,
                     order_date=order_date,
                     order_status=order['orderStatus'],
