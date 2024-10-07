@@ -78,7 +78,8 @@ class ShipstationConnection:
             "expedite": "19055",
             "replacement": "25911",
             "impatient": "30832",
-            "monthly": "26005"  # Shouldnt be needed but adding just to keep track of it
+            "monthly": "26005",  # Shouldnt be needed but adding just to keep track of it
+            "late": "31803"
         }
         url = f'{self.base_url}orders/addtag'
         tag_data = {"orderId": order['orderId'], "tagId": tags[tag]}
@@ -537,10 +538,8 @@ class ShipstationConnection:
             if subscription_processed:
                 print(
                     f"Processed subscription order {order['orderNumber']}. Proceeding with regular order updates for the original order.")
-            else:
-                print(
-                    f"No subscription items found in order {order['orderNumber']}. Proceeding with normal processing.")
 
+                
             # Continue with regular order processing, including for the modified original order
             tags = order.get('tagIds', [])
             if not tags:
@@ -575,14 +574,15 @@ class ShipstationConnection:
                 orderNumber = f"{orderNumber}-R"
                 orderDate = (datetime.now() - timedelta(days=5)).strftime(
                     "%Y-%m-%dT%H:%M:%S.%f000")  # Sets it as if the order was placed 5 days ago to prioritize the replacements.
-                notes += " [REPLACEMENT - ADD 3x FREE STEMS]"
+                notes += " [REPLACEMENT - ADD 3 FREE STEMS]"
 
-            # If the order is more than 6 days old (AND IS NOT NONLIVING), add stems for delay
-            elif not self.nonliving:
-                if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
-                    print("Order is late!")
-                    notes += " [ADD 3x STEMS FOR DELAY]"
-                    shipByDays -= 1
+            # CHECK IF ORDER IS LATE
+            if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
+                print("Order is late! Prioritizing and tagging late!")
+                tags.append(31803)  # LATE tag
+                shipByDays -= 4
+                if not self.nonliving:
+                    notes += " [ADD 3 FREE STEMS FOR DELAY]"  # Only add free stems if they bought other plants
 
             # Add a reminder if there is stuff with more than 1 quantity
             multipleItemReminder = ""
