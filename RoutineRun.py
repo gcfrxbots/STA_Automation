@@ -688,7 +688,7 @@ class Subscriptions:
                 ]
 
                 # Create new order in Shipstation
-                success, new_order_id = self.shipstation.create_order(
+                success, new_order_id = shipstation.create_order(
                     order_key=order['orderKey'],
                     new_order_number=sub_order_number,
                     order_date=order_date,
