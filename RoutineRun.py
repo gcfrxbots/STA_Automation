@@ -181,7 +181,9 @@ class ShipstationConnection:
             print(f'Error updating order {order_id}:', response.text)
             return False
 
-        return True
+        order_id = response.json().get('orderId')
+
+        return True, order_id
 
     def is_all_nonliving(self, order):
         """
@@ -706,7 +708,7 @@ class Subscriptions:
                 ]
 
                 # Create the new order for the subscription month
-                success = self.shipstation.update_order(
+                success, order_id = self.shipstation.update_order(
                     order_id=None,  # No existing order ID since this is a new order
                     order_key=order['orderKey'],
                     order_number=sub_order_number,
@@ -735,7 +737,7 @@ class Subscriptions:
                 # Delay the new orders as required
                 if month > 0:
                     delay_days = month * 30
-                    self.shipstation.delay_order(order_id=sub_order_number, delay_days=delay_days)
+                    self.shipstation.delay_order(order_id=order_id, delay_days=delay_days)
 
             return True
 
