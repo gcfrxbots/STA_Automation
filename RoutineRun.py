@@ -316,6 +316,22 @@ class ShipstationConnection:
 
         return transit_times
 
+    def delay_order(self, order_id, delay_days):
+        new_hold_date = (datetime.now() + timedelta(days=delay_days)).strftime('%Y-%m-%dT%H:%M:%S')
+        url = f'{self.base_url}orders/holduntil'
+        payload = {
+            'orderId': order_id,
+            'holdUntilDate': new_hold_date
+        }
+        response = requests.post(url, headers=self.headers, json=payload)
+
+        if response.status_code != 200:
+            print(f'Error delaying order {order_id}:', response.text)
+            return False
+
+        print(f"Order {order_id} delayed until {new_hold_date}.")
+        return True
+
     def get_temperature_high(self, zip_code):
         """
         Retrieves the average high temperature for the next 7 days for the given ZIP code
@@ -539,7 +555,7 @@ class ShipstationConnection:
                 print(
                     f"Processed subscription order {order['orderNumber']}. Proceeding with regular order updates for the original order.")
 
-                
+
             # Continue with regular order processing, including for the modified original order
             tags = order.get('tagIds', [])
             if not tags:
