@@ -407,8 +407,8 @@ class ShipstationConnection:
 
             if "Select" in order['requestedShippingService']:
                 print("Customer paid for 3 Day Select")
-                max_days = 3
-                dayOffset = -2
+                return "ups_3_day_select", notes, temperature_high, -2
+
 
         # Step 1: Get shipping rates
         rates = self.get_shipping_rates(order)
@@ -640,6 +640,11 @@ class Subscriptions:
                 "unitPrice": 0.00
             })
 
+            tags = order.get('tagIds', [])
+            if not tags:
+                tags = []
+            tags = tags.append(26005)
+
             # Update the original order in Shipstation
             update_success = self.shipstation.update_order(
                 order_id=order['orderId'],
@@ -650,7 +655,7 @@ class Subscriptions:
                 bill_to=order['billTo'],
                 ship_to=order['shipTo'],
                 items=original_items,
-                tags=order.get('tagIds', []).append(26005),
+                tags=tags,
                 storeId=order.get('advancedOptions', {}).get('storeId'),
                 weight=order['weight'],
                 temp="",
