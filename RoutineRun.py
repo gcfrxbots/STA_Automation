@@ -543,6 +543,8 @@ class ShipstationConnection:
 
             # Continue with regular order processing, including for the modified original order
             tags = order.get('tagIds', [])
+            if not tags:
+                tags = []
             items = order['items']
             orderKey = order['orderKey']
             orderId = order['orderId']
