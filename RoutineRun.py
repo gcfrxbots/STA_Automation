@@ -695,7 +695,7 @@ class Subscriptions:
             print(f"Original order {order['orderNumber']} updated successfully with subscription changes.")
 
             # Create subsequent orders for each month
-            for month in range(2, months):
+            for month in range(2, months+1):
                 print(month)
                 sub_order_number = f"{order['orderNumber']}-SUB-{month}"
                 order_date = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f000')
