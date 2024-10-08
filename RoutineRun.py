@@ -556,6 +556,7 @@ class ShipstationConnection:
             if subscription_processed:
                 print(
                     f"Processed subscription order {order['orderNumber']}. Proceeding with regular order updates for the original order.")
+                continue
 
 
             # Continue with regular order processing, including for the modified original order
