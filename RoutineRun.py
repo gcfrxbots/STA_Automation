@@ -697,7 +697,7 @@ class Subscriptions:
 
             # Create subsequent orders for each month
             for month in range(2, months+1):
-                print(month)
+                delay_days = (month - 1) * 30
                 sub_order_number = f"{order['orderNumber']}-SUB-{month}"
                 order_date = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f000')
                 sub_items = [
@@ -724,7 +724,7 @@ class Subscriptions:
                     weight=order['weight'],
                     temp="",
                     source=order.get('advancedOptions', {}).get('source'),
-                    shipByDays=0,
+                    shipByDays=delay_days - 5,  # 30 / 60 / 90 / etc days - 5 for the built in offset
                     custom3="",
                     email=order['customerEmail'],
                     requestedShipping=order['requestedShippingService'],
@@ -738,7 +738,6 @@ class Subscriptions:
 
                 # Delay the new orders as required
                 if month > 1:
-                    delay_days = (month - 1) * 30
                     self.shipstation.delay_order(order_id=order_id, delay_days=delay_days)
 
             return True
