@@ -736,7 +736,7 @@ class Subscriptions:
                     continue
 
                 # Delay the new orders as required
-                if month > 0:
+                if month > 1:
                     delay_days = month * 30
                     self.shipstation.delay_order(order_id=order_id, delay_days=delay_days)
 
