@@ -192,6 +192,10 @@ class ShipstationConnection:
         nonliving_category = "Nonliving"
         all_nonliving = True
 
+        if len(order['orderNumber']) > 16 and order['orderNumber'].isupper():
+            print("Order is a paypal order, not marking as nonliving")
+            return False
+
         for item in order['items']:
             if item['sku']:  # Skip any item missing a sku
                 product_details = self.get_product_details(item['sku'])
