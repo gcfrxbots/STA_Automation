@@ -880,8 +880,6 @@ class Squarespace:
             price += priceIncrease
 
             print(f"Base price: ${basePrice:.2f}, Increased by {increasePercent:.1%}, New price: ${(price):.2f}")
-        
-        quit()
 
         return price
 
@@ -929,14 +927,14 @@ class Squarespace:
 
 if __name__ == "__main__":
     # Extract the arguments
-    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, squarespaceAPIKey = sys.argv
+    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, SquarespaceAPIKey= sys.argv
 
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
-    sq = Squarespace(shipstation, squarespaceAPIKey)
+    sq = Squarespace(shipstation, SquarespaceAPIKey)
     #sq = Squarespace()
 
 
-    #shipstation.run()
+    shipstation.run()
     plants = sq.getPlantProducts()
     sq.updatePlantPrices(plants)
     #sq.rollbackPlantPrices(plants)
