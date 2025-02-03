@@ -855,7 +855,6 @@ class Squarespace:
         else:
             price = self.basePrices["plant"]
 
-        print("Product BASE Price:" + str(price))
 
         # Now calculate the price increase
 
@@ -880,6 +879,8 @@ class Squarespace:
             price += priceIncrease
 
             print(f"Base price: ${basePrice:.2f}, Increased by {increasePercent:.1%}, New price: ${(price):.2f}")
+        else:
+            print("Base price:" + str(price) + " - No increase")
 
         return price
 
@@ -920,7 +921,7 @@ class Squarespace:
                 if response.status_code != 200:
                     print(f"Error updating {productName} variant {variantIndex}: {response.text}")
                 else:
-                    print(f"Updated {productName} variant {variantIndex} to ${basePrice} (sale: ${salePrice})")
+                    print(f"Updated {productName} variant {variantIndex} to ${basePrice} (sale: ${salePrice})\n")
 
 
 
