@@ -2,6 +2,7 @@ import base64
 import requests
 import random
 import sys
+import math
 from datetime import datetime, timedelta
 
 class ShipstationConnection:
@@ -16,6 +17,7 @@ class ShipstationConnection:
         self.shipping_service = "ups_ground_saver"  # Default shipping service code
         self.nonliving = False
         self.expedite = False
+        self.ordersInQueue = 0
 
     def _generate_headers(self):
         credentials = f"{self.api_key}:{self.api_secret}"
@@ -134,7 +136,9 @@ class ShipstationConnection:
             print('Error fetching orders:', response.text)
             return []
 
-        return response.json().get('orders', [])
+        orders = response.json().get('orders', [])
+        self.ordersInQueue = len(orders) # Track order count
+        return orders
 
     def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, custom3, shipping_service=None, notes=None):
         """
@@ -755,9 +759,185 @@ class Subscriptions:
         return None
 
 
+class Squarespace:
+    def __init__(self, shipstation, apikey):
+        self.shipstation = shipstation
+        # Connect to Squarespace API
+        self.apiKey = apikey
+        self.baseUrl = "https://api.squarespace.com/1.0/"
+        self.headers = {
+            "Authorization": f"Bearer {self.apiKey}",
+            "Content-Type": "application/json"
+        }
+
+        self.increaseWeight = 5  # 1 to 10, 10 is the most intensive increase in price.
+
+        self.basePrices = {
+            "plant": 6.99,
+            "rare": 9.99,
+            "vRare": 12.99,
+            "bettaShrimp0": 11.99,
+            "bettaShrimp1": 18.99,
+            "bundle0": 12.99,
+            "bundle1": 18.99,
+            "bundle2": 24.99,
+            "bundle3": 33.99,
+            "clearance0": 7.99,
+            "clearance1": 14.99
+        }
+
+    def getPlantProducts(self):
+        # Get all products with pagination
+        url = f"{self.baseUrl}commerce/products"
+        products = []
+        offset = 0
+        pageSize = 50
+        # Get all products 
+        allProducts = []
+        hasMore = True
+        targetStoreId = "63d6aa29317b5e3016bf0665"
+        
+        while hasMore:
+            response = requests.get(url, headers=self.headers)
+            
+            if response.status_code != 200:
+                print("Error fetching products:", response.text)
+                return False
+                
+            data = response.json()
+            products = data.get("products", [])
+
+            
+            # Filter products that shouldn't be processed
+            for product in products:
+                tags = product.get("tags", [])
+                
+                if (product.get("storePageId") == targetStoreId and 
+                    "Skip" not in tags):
+                    allProducts.append(product)
+
+
+            # Check pagination
+            pagination = data.get("pagination", {})
+            hasMore = pagination.get("hasNextPage", False)
+            if hasMore:
+                nextUrl = pagination.get("nextPageUrl")
+                if nextUrl:
+                    url = nextUrl
+                else:
+                    hasMore = False
+        
+        products = allProducts
+        print(f"Found {len(products)} total plant products")
+        return products
+    
+
+    
+    def determinePrice(self, product, variantIndex=0):
+        # Get name
+        productName = product.get("name", "").lower()
+        price = 0
+
+        # Check bundle type
+        if "bundle" in productName:
+            if "betta" in productName or "shrimp" in productName:
+                price = self.basePrices.get(f"bettaShrimp{variantIndex}", self.basePrices["plant"]) 
+            elif "clearance" in productName:
+                price = self.basePrices.get(f"clearance{variantIndex}", self.basePrices["plant"])
+            else:
+                price = self.basePrices.get(f"bundle{variantIndex}", self.basePrices["plant"])
+        
+        # Check rarity 
+        elif "rare" in productName:
+            price = self.basePrices["vRare"] if "very" in productName else self.basePrices["rare"]
+        
+        # Default price
+        else:
+            price = self.basePrices["plant"]
+
+        print("Product BASE Price:" + str(price))
+
+        # Now calculate the price increase
+
+        # Get order queue count
+        ordersInQueue = self.shipstation.ordersInQueue
+        # Price increase over 20 orders
+        if ordersInQueue > 20:
+            basePrice = price
+            # Calculate increase based on queue size
+            extraOrders = ordersInQueue - 20
+            baseIncrease = 0.03 * self.increaseWeight
+            
+            # Exponential increase
+            exponent = 1.5
+            increasePercent = baseIncrease * (exponent ** ((extraOrders + 3) / 10))
+            
+            # Cap at 100% increase
+            increasePercent = min(1.0, increasePercent)
+            
+            # Apply increase
+            priceIncrease = price * increasePercent
+            price += priceIncrease
+
+            print(f"Base price: ${basePrice:.2f}, Increased by {increasePercent:.1%}, New price: ${(price):.2f}")
+        
+        quit()
+
+        return price
+
+    def updatePlantPrices(self, products):
+        # Process each product
+        for product in products:
+            productName = product.get("name", "").lower()
+            variants = product.get("variants", [])
+            
+            # Process each variant 
+            for variantIndex, variant in enumerate(variants):
+                
+                # Base price
+                basePrice = self.determinePrice(product, variantIndex)
+                basePrice = math.floor(basePrice) + 0.99
+                
+                # Sale price
+                salePrice = math.floor(basePrice * 0.75) + 0.99
+                
+                # Update variant price
+                updateUrl = f"{self.baseUrl}commerce/products/{product['id']}/variants/{variant['id']}"
+                
+                priceData = {
+                    "pricing": {
+                        "basePrice": {
+                            "value": str(basePrice),
+                            "currency": "USD"
+                        },
+                        "salePrice": {
+                            "value": str(salePrice),
+                            "currency": "USD"
+                        }
+                    }
+                }
+                
+                response = requests.post(updateUrl, headers=self.headers, json=priceData)
+                
+                if response.status_code != 200:
+                    print(f"Error updating {productName} variant {variantIndex}: {response.text}")
+                else:
+                    print(f"Updated {productName} variant {variantIndex} to ${basePrice} (sale: ${salePrice})")
+
+
+
+
 if __name__ == "__main__":
     # Extract the arguments
-    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey = sys.argv
+    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, squarespaceAPIKey = sys.argv
 
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
-    shipstation.run()
+    sq = Squarespace(shipstation, squarespaceAPIKey)
+    #sq = Squarespace()
+
+
+    #shipstation.run()
+    plants = sq.getPlantProducts()
+    sq.updatePlantPrices(plants)
+    #sq.rollbackPlantPrices(plants)
+
