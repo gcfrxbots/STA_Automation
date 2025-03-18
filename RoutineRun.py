@@ -782,8 +782,8 @@ class Squarespace:
             "bundle1": 18.99,
             "bundle2": 24.99,
             "bundle3": 33.99,
-            "clearance0": 7.99,
-            "clearance1": 14.99
+            "clearance0": 8.99,
+            "clearance1": 17.99
         }
 
     def getPlantProducts(self):
