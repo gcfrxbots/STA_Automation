@@ -770,7 +770,7 @@ class Squarespace:
             "Content-Type": "application/json"
         }
 
-        self.increaseWeight = 5  # 1 to 10, 10 is the most intensive increase in price.
+        self.increaseWeight = 7  # 1 to 10, 10 is the most intensive increase in price.
 
         self.basePrices = {
             "plant": 6.99,
