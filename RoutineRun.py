@@ -386,7 +386,7 @@ class ShipstationConnection:
         temperature_high = self.get_temperature_high(destination_zip)
         order_total = order['orderTotal']  # Get the total amount for the order
         # Default max days for shipping based on temperature
-        max_days = 4
+        max_days = 5
         dayOffset = 0
 
         if order.get('tagIds', []):
@@ -489,7 +489,7 @@ class ShipstationConnection:
 
         # Check if the best rate is for UPS 3 Day Select and apply the condition
         if best_rate and best_rate['serviceCode'] == 'ups_3_day_select':
-            if best_rate['cost'] > 11 and order_total < 35:
+            if best_rate['cost'] > 9 and order_total < 35:
                 print(f"Switching to UPS Ground because UPS 3 Day Select rate is {best_rate['cost']} and order total is {order_total}")
                 # Find the UPS Ground rate and use it
                 for rate in rates:
@@ -499,7 +499,7 @@ class ShipstationConnection:
                             'cost': rate['shipmentCost']
                         }
                         break
-            elif best_rate['cost'] > 12.5 and order_total < 50:
+            elif best_rate['cost'] > 11 and order_total < 50:
                 print(f"Switching to UPS Ground because UPS 3 Day Select rate is {best_rate['cost']} and order total is {order_total}")
                 # Find the UPS Ground rate and use it
                 for rate in rates:
@@ -512,9 +512,9 @@ class ShipstationConnection:
 
         # If no valid rate was found, default to UPS 3 Day Select but still apply the cost checks
         if not best_rate:
-            print("No valid rate found, defaulting to UPS 3 Day Select")
+            print("No valid rate found, defaulting to UPS Ground")
             for rate in rates:
-                if rate['serviceCode'] == 'ups_3_day_select':
+                if rate['serviceCode'] == 'ups_ground':
                     best_rate = {
                         'serviceCode': rate['serviceCode'],
                         'cost': rate['shipmentCost']
