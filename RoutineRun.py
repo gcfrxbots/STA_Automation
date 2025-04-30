@@ -399,13 +399,13 @@ class ShipstationConnection:
             temperature_high = 70  # Assume neutral temperature if API call fails.
 
         # Adjust delivery days based on temperature
-        if temperature_high > 80 or temperature_high < 40:
+        if temperature_high > 85 or temperature_high < 40:
             max_days = 3  # Stricter limit for extreme temperatures
             print(f"Temperature high is {temperature_high}, setting max delivery days to {max_days}")
 
         # Notes for ice/heat pack
         notes = ""
-        if temperature_high > 80:
+        if temperature_high > 85:
             notes = "[INCLUDE ICE PACK]"
         elif temperature_high < 40:
             notes = "[INCLUDE HEAT PACK]"
@@ -770,20 +770,23 @@ class Squarespace:
             "Content-Type": "application/json"
         }
 
-        self.increaseWeight = 7  # 1 to 10, 10 is the most intensive increase in price.
+        self.increaseWeight = 8  # 1 to 10, 10 is the most intensive increase in price.
+
+        self.orderLimit = 15  # Number of orders to have in the queue before increasing price.
+        self.lowValueStockLimit = self.orderLimit * 2  # 2x order limit threshold
 
         self.basePrices = {
             "plant": 6.99,
             "rare": 9.99,
             "vRare": 12.99,
-            "bettaShrimp0": 11.99,
-            "bettaShrimp1": 18.99,
-            "bundle0": 12.99,
-            "bundle1": 18.99,
-            "bundle2": 24.99,
-            "bundle3": 33.99,
-            "clearance0": 8.99,
-            "clearance1": 17.99
+            "bettaShrimp0": 13.99,
+            "bettaShrimp1": 19.99,
+            "bundle0": 13.99,
+            "bundle1": 19.99,
+            "bundle2": 25.99,
+            "bundle3": 34.99,
+            "clearance0": 9.99,
+            "clearance1": 19.99
         }
 
     def getPlantProducts(self):
@@ -861,10 +864,10 @@ class Squarespace:
         # Get order queue count
         ordersInQueue = self.shipstation.ordersInQueue
         # Price increase over 20 orders
-        if ordersInQueue > 20:
+        if ordersInQueue > self.orderLimit:
             basePrice = price
             # Calculate increase based on queue size
-            extraOrders = ordersInQueue - 20
+            extraOrders = ordersInQueue - self.orderLimit
             baseIncrease = 0.03 * self.increaseWeight
             
             # Exponential increase
@@ -884,27 +887,31 @@ class Squarespace:
 
         return price
 
-    def updatePlantPrices(self, products):
-        # Process each product
+    def updateAllPrices(self, products):
         for product in products:
-            productName = product.get("name", "").lower()
+            productName = product.get("name", "")
             variants = product.get("variants", [])
+            tags = product.get("tags", [])
+            isLowValue = "lowval" in tags
             
-            # Process each variant 
+            # Check if product uses plant pricing
+            isPlantPricing = False
+            if "rare" in productName.lower():
+                isPlantPricing = True
+            elif any(term in productName.lower() for term in ["plant", "stem", "bunch"]):
+                isPlantPricing = True
+            
             for variantIndex, variant in enumerate(variants):
-                
-                # Base price
-                basePrice = self.determinePrice(product, variantIndex)
-                basePrice = math.floor(basePrice) + 0.99
-                
-                # Sale price
-                salePrice = math.floor(basePrice * 0.75) + 0.99
-                
-                # Update variant price
                 updateUrl = f"{self.baseUrl}commerce/products/{product['id']}/variants/{variant['id']}"
+                priceData = {}
                 
-                priceData = {
-                    "pricing": {
+                # Only adjust prices for plants
+                if isPlantPricing:
+                    basePrice = self.determinePrice(product, variantIndex)
+                    basePrice = math.floor(basePrice) + 0.99
+                    salePrice = math.floor(basePrice * 0.75) + 0.99
+                    
+                    priceData["pricing"] = {
                         "basePrice": {
                             "value": str(basePrice),
                             "currency": "USD"
@@ -914,14 +921,29 @@ class Squarespace:
                             "currency": "USD"
                         }
                     }
-                }
-                
-                response = requests.post(updateUrl, headers=self.headers, json=priceData)
-                
-                if response.status_code != 200:
-                    print(f"Error updating {productName} variant {variantIndex}: {response.text}")
+                    priceMsg = f"${basePrice} (sale: ${salePrice})"
                 else:
-                    print(f"Updated {productName} variant {variantIndex} to ${basePrice} (sale: ${salePrice})\n")
+                    priceMsg = "prices unchanged"
+                
+                # Manage stock for all low value items
+                if isLowValue:
+                    stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 900
+                    priceData["stock"] = {
+                        "quantity": stockLevel,
+                        "unlimited": False
+                    }
+                    stockMsg = f", Stock: {stockLevel}"
+                else:
+                    stockMsg = ""
+                
+                # Only make API call if we have changes to make
+                if priceData:
+                    response = requests.post(updateUrl, headers=self.headers, json=priceData)
+                    
+                    if response.status_code != 200:
+                        print(f"Error updating {productName} variant {variantIndex}: {response.text}")
+                    else:
+                        print(f"Updated {productName} variant {variantIndex} to {priceMsg}{stockMsg}\n")
 
 
 
@@ -937,6 +959,6 @@ if __name__ == "__main__":
 
     shipstation.run()
     plants = sq.getPlantProducts()
-    sq.updatePlantPrices(plants)
+    sq.updateAllPrices(plants)
     #sq.rollbackPlantPrices(plants)
 
