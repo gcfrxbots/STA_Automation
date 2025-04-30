@@ -386,7 +386,7 @@ class ShipstationConnection:
         temperature_high = self.get_temperature_high(destination_zip)
         order_total = order['orderTotal']  # Get the total amount for the order
         # Default max days for shipping based on temperature
-        max_days = 5
+        max_days = 4
         dayOffset = 0
 
         if order.get('tagIds', []):
@@ -843,12 +843,14 @@ class Squarespace:
 
         # Check bundle type
         if "bundle" in productName:
+            print("A")
             if "betta" in productName or "shrimp" in productName:
                 price = self.basePrices.get(f"bettaShrimp{variantIndex}", self.basePrices["plant"]) 
             elif "clearance" in productName:
                 price = self.basePrices.get(f"clearance{variantIndex}", self.basePrices["plant"])
             else:
                 price = self.basePrices.get(f"bundle{variantIndex}", self.basePrices["plant"])
+                print("B")
         
         # Check rarity 
         elif "rare" in productName:
@@ -857,6 +859,7 @@ class Squarespace:
         # Default price
         else:
             price = self.basePrices["plant"]
+            print("C")
 
 
         # Now calculate the price increase
