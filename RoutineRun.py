@@ -925,25 +925,40 @@ class Squarespace:
                 else:
                     priceMsg = "prices unchanged"
                 
-                # Manage stock for all low value items
+                # Update prices if needed
+                if priceData:
+                    response = requests.post(updateUrl, headers=self.headers, json=priceData)
+                    if response.status_code != 200:
+                        print(f"Error updating prices for {productName} variant {variantIndex}: {response.text}")
+                        continue
+                
+                # Handle stock updates separately for low value items
                 if isLowValue:
                     stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 900
-                    priceData["stock"] = {
-                        "quantity": stockLevel,
-                        "unlimited": False
+                    stockUrl = f"{self.baseUrl}commerce/inventory/adjustments"
+                    
+                    stockData = {
+                        "setFiniteOperations": [{
+                            "variantId": variant['id'],
+                            "quantity": stockLevel
+                        }]
                     }
-                    stockMsg = f", Stock: {stockLevel}"
+                    
+                    # Add Idempotency-Key header for stock update
+                    stockHeaders = self.headers.copy()
+                    stockHeaders["Idempotency-Key"] = f"stock_update_{variant['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    
+                    stockResponse = requests.post(stockUrl, headers=stockHeaders, json=stockData)
+                    
+                    if stockResponse.status_code not in [204, 200]:
+                        print(f"Error updating stock for {productName} variant {variantIndex}: {stockResponse.text}")
+                        stockMsg = ", Stock update failed"
+                    else:
+                        stockMsg = f", Stock: {stockLevel}"
                 else:
                     stockMsg = ""
                 
-                # Only make API call if we have changes to make
-                if priceData:
-                    response = requests.post(updateUrl, headers=self.headers, json=priceData)
-                    
-                    if response.status_code != 200:
-                        print(f"Error updating {productName} variant {variantIndex}: {response.text}")
-                    else:
-                        print(f"Updated {productName} variant {variantIndex} to {priceMsg}{stockMsg}\n")
+                print(f"Updated {productName} variant {variantIndex} to {priceMsg}{stockMsg}\n")
 
 
 
