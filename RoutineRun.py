@@ -843,14 +843,12 @@ class Squarespace:
 
         # Check bundle type
         if "bundle" in productName:
-            print("A")
             if "betta" in productName or "shrimp" in productName:
                 price = self.basePrices.get(f"bettaShrimp{variantIndex}", self.basePrices["plant"]) 
             elif "clearance" in productName:
                 price = self.basePrices.get(f"clearance{variantIndex}", self.basePrices["plant"])
             else:
                 price = self.basePrices.get(f"bundle{variantIndex}", self.basePrices["plant"])
-                print("B")
         
         # Check rarity 
         elif "rare" in productName:
@@ -859,7 +857,6 @@ class Squarespace:
         # Default price
         else:
             price = self.basePrices["plant"]
-            print("C")
 
 
         # Now calculate the price increase
@@ -901,7 +898,7 @@ class Squarespace:
             isPlantPricing = False
             if "rare" in productName.lower():
                 isPlantPricing = True
-            elif any(term in productName.lower() for term in ["plant", "stem", "bunch"]):
+            elif any(term in productName.lower() for term in ["plant", "stem", "bunch", "bundle"]):
                 isPlantPricing = True
             
             for variantIndex, variant in enumerate(variants):
