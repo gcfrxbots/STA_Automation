@@ -148,6 +148,13 @@ class ShipstationConnection:
 
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
+        
+        # Determine carrier code based on shipping service
+        carrier_code = "usps" if shipping_service == "usps_ground_advantage" else "ups_walleted"
+        
+        # Debug print
+        print(f"Order {order_number} - Carrier: {carrier_code}, Service: {shipping_service}")
+        
         data = {
             "orderKey": order_key,
             "orderNumber": order_number,
@@ -158,7 +165,7 @@ class ShipstationConnection:
             "items": items,
             "tagIds": tags,
             "weight": weight,
-            "carrierCode": "ups_walleted",
+            "carrierCode": carrier_code,
             "serviceCode": shipping_service,
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
@@ -387,10 +394,6 @@ class ShipstationConnection:
         max_days = 4
         dayOffset = 0
 
-        # Debug print for specific order
-        if order['orderNumber'] == '3666578732':
-            print(f"Debug - Order {order['orderNumber']} service code: {order.get('serviceCode', 'No service code found')}")
-
         # Calculate actual total weight from items
         total_weight = 0
         for item in order['items']:
@@ -423,6 +426,9 @@ class ShipstationConnection:
                 
                 # Update package type
                 order['dimensions']['packageCode'] = '130843'
+                
+                # Set carrier to USPS
+                order['carrierCode'] = 'usps'
                 
                 return "usps_ground_advantage", "[NONLIVING - No Perlite]", temperature_high, dayOffset
 
