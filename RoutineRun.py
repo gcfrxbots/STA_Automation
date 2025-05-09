@@ -387,6 +387,10 @@ class ShipstationConnection:
         max_days = 4
         dayOffset = 0
 
+        # Debug print for specific order
+        if order['orderNumber'] == '3666578732':
+            print(f"Debug - Order {order['orderNumber']} service code: {order.get('serviceCode', 'No service code found')}")
+
         # Calculate actual total weight from items
         total_weight = 0
         for item in order['items']:
