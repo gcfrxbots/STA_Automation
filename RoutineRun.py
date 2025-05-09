@@ -388,7 +388,17 @@ class ShipstationConnection:
         dayOffset = 0
 
         # Calculate actual total weight from items
-        total_weight = sum(item.get('weight', {}).get('value', 0) for item in order['items'])
+        total_weight = 0
+        for item in order['items']:
+            if isinstance(item.get('weight'), dict):
+                weight_value = item['weight'].get('value', 0)
+                weight_units = item['weight'].get('units', 'ounces')
+                
+                # Convert to pounds if in ounces
+                if weight_units.lower() == 'ounces':
+                    weight_value = weight_value / 16
+                    
+                total_weight += weight_value
         
         # Set default weight to 8oz (0.5 lbs)
         order['weight']['value'] = 0.5
