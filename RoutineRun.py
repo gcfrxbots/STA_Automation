@@ -81,7 +81,8 @@ class ShipstationConnection:
             "replacement": "25911",
             "impatient": "30832",
             "monthly": "26005",  # Shouldnt be needed but adding just to keep track of it
-            "late": "31803"
+            "late": "31803",
+            "USPS": "38738"
         }
         url = f'{self.base_url}orders/addtag'
         tag_data = {"orderId": order['orderId'], "tagId": tags[tag]}
@@ -377,17 +378,48 @@ class ShipstationConnection:
         return average_high
 
     def determine_best_shipping(self, order):
-
         self.nonliving = False
         self.expedite = False
         origin_zip = "23236"
         destination_zip = order['shipTo']['postalCode']
         weight_lbs = order['weight']['value']
         temperature_high = self.get_temperature_high(destination_zip)
-        order_total = order['orderTotal']  # Get the total amount for the order
-        # Default max days for shipping based on temperature
+        order_total = order['orderTotal']
         max_days = 4
         dayOffset = 0
+
+        # Set default weight to 8oz (0.5 lbs)
+        order['weight']['value'] = 0.5
+        order['weight']['units'] = 'pounds'
+
+        # Check for lightweight nonliving orders
+        if self.is_all_nonliving(order):
+            self.nonliving = True
+            self.tag_order(order, "nonliving")
+            
+            if weight_lbs < 1:
+                print("Lightweight nonliving order - using USPS shipping")
+                self.tag_order(order, "USPS")
+                
+                # Update order weight to 4oz
+                order['weight']['value'] = 0.25
+                order['weight']['units'] = 'pounds'
+                
+                # Update package type
+                order['dimensions']['packageCode'] = '130843'
+                
+                return "usps_ground_advantage", "[NONLIVING - No Perlite]", temperature_high, dayOffset
+
+            # Original nonliving logic for heavier items
+            current_day = datetime.now().weekday()  # Monday is 0, Sunday is 6
+            if current_day >= 3:
+                print("NONLIVING - It's late in the week, prioritizing")
+                dayOffset = -4
+            else:
+                print("NONLIVING - Early in the week, delaying til later")
+                dayOffset = 1
+
+            return None, "[NONLIVING - No Perlite]", temperature_high, dayOffset
 
         if order.get('tagIds', []):
             if 30832 in order.get('tagIds', []):  # Prioritize orders for customers who are asking about their order status
@@ -799,7 +831,9 @@ class Squarespace:
         allProducts = []
         hasMore = True
         targetStoreId = "63d6aa29317b5e3016bf0665"
+        secondaryStoreId = "63d6ace74d425935bd5cef4d"
         
+        # First get main store products
         while hasMore:
             response = requests.get(url, headers=self.headers)
             
@@ -809,7 +843,6 @@ class Squarespace:
                 
             data = response.json()
             products = data.get("products", [])
-
             
             # Filter products that shouldn't be processed
             for product in products:
@@ -817,8 +850,40 @@ class Squarespace:
                 
                 if (product.get("storePageId") == targetStoreId and 
                     "Skip" not in tags):
-                    allProducts.append(product)
+                    allProducts.append({"product": product, "isSupplyHold": False})
 
+            # Check pagination
+            pagination = data.get("pagination", {})
+            hasMore = pagination.get("hasNextPage", False)
+            if hasMore:
+                nextUrl = pagination.get("nextPageUrl")
+                if nextUrl:
+                    url = nextUrl
+                else:
+                    hasMore = False
+
+        # Reset for supply hold products
+        url = f"{self.baseUrl}commerce/products"
+        hasMore = True
+        
+        # Now get supply hold products
+        while hasMore:
+            response = requests.get(url, headers=self.headers)
+            
+            if response.status_code != 200:
+                print("Error fetching products:", response.text)
+                return False
+                
+            data = response.json()
+            products = data.get("products", [])
+            
+            # Filter supply hold products
+            for product in products:
+                tags = product.get("tags", [])
+                
+                if (product.get("storePageId") == secondaryStoreId and 
+                    "Skip" not in tags):
+                    allProducts.append({"product": product, "isSupplyHold": True})
 
             # Check pagination
             pagination = data.get("pagination", {})
@@ -830,12 +895,9 @@ class Squarespace:
                 else:
                     hasMore = False
         
-        products = allProducts
-        print(f"Found {len(products)} total plant products")
-        return products
-    
+        print(f"Found {len(allProducts)} total products")
+        return allProducts
 
-    
     def determinePrice(self, product, variantIndex=0):
         # Get name
         productName = product.get("name", "").lower()
@@ -888,25 +950,44 @@ class Squarespace:
         return price
 
     def updateAllPrices(self, products):
-        for product in products:
+        for productData in products:
+            product = productData["product"]
+            isSupplyHold = productData["isSupplyHold"]
+            
             productName = product.get("name", "")
             variants = product.get("variants", [])
             tags = product.get("tags", [])
-            isLowValue = "lowval" in tags
-            
-            # Check if product uses plant pricing
-            isPlantPricing = False
-            if "rare" in productName.lower():
-                isPlantPricing = True
-            elif any(term in productName.lower() for term in ["plant", "stem", "bunch", "bundle"]):
-                isPlantPricing = True
             
             for variantIndex, variant in enumerate(variants):
-                updateUrl = f"{self.baseUrl}commerce/products/{product['id']}/variants/{variant['id']}"
-                priceData = {}
-                
-                # Only adjust prices for plants
-                if isPlantPricing:
+                if isSupplyHold:
+                    # Only update stock for supply hold products
+                    stockUrl = f"{self.baseUrl}commerce/inventory/adjustments"
+                    stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 500
+                    
+                    stockData = {
+                        "setFiniteOperations": [{
+                            "variantId": variant['id'],
+                            "quantity": stockLevel
+                        }]
+                    }
+                    
+                    stockHeaders = self.headers.copy()
+                    stockHeaders["Idempotency-Key"] = f"stock_update_{variant['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    
+                    stockResponse = requests.post(stockUrl, headers=stockHeaders, json=stockData)
+                    
+                    if stockResponse.status_code not in [204, 200]:
+                        print(f"Error updating stock for supply hold {productName} variant {variantIndex}: {stockResponse.text}")
+                    else:
+                        print(f"Updated supply hold {productName} variant {variantIndex} stock to {stockLevel}\n")
+                    
+                else:
+                    # Regular price and stock updates for main store products
+                    updateUrl = f"{self.baseUrl}commerce/products/{product['id']}/variants/{variant['id']}"
+                    priceData = {}
+                    isLowValue = "lowval" in tags
+                    
+                    # Calculate prices for all products
                     basePrice = self.determinePrice(product, variantIndex)
                     basePrice = math.floor(basePrice) + 0.99
                     salePrice = math.floor(basePrice * 0.75) + 0.99
@@ -922,43 +1003,39 @@ class Squarespace:
                         }
                     }
                     priceMsg = f"${basePrice} (sale: ${salePrice})"
-                else:
-                    priceMsg = "prices unchanged"
-                
-                # Update prices if needed
-                if priceData:
+                    
+                    # Update prices
                     response = requests.post(updateUrl, headers=self.headers, json=priceData)
                     if response.status_code != 200:
                         print(f"Error updating prices for {productName} variant {variantIndex}: {response.text}")
                         continue
-                
-                # Handle stock updates separately for low value items
-                if isLowValue:
-                    stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 900
-                    stockUrl = f"{self.baseUrl}commerce/inventory/adjustments"
                     
-                    stockData = {
-                        "setFiniteOperations": [{
-                            "variantId": variant['id'],
-                            "quantity": stockLevel
-                        }]
-                    }
-                    
-                    # Add Idempotency-Key header for stock update
-                    stockHeaders = self.headers.copy()
-                    stockHeaders["Idempotency-Key"] = f"stock_update_{variant['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                    
-                    stockResponse = requests.post(stockUrl, headers=stockHeaders, json=stockData)
-                    
-                    if stockResponse.status_code not in [204, 200]:
-                        print(f"Error updating stock for {productName} variant {variantIndex}: {stockResponse.text}")
-                        stockMsg = ", Stock update failed"
+                    # Handle stock updates for low value items
+                    if isLowValue:
+                        stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 900
+                        stockUrl = f"{self.baseUrl}commerce/inventory/adjustments"
+                        
+                        stockData = {
+                            "setFiniteOperations": [{
+                                "variantId": variant['id'],
+                                "quantity": stockLevel
+                            }]
+                        }
+                        
+                        stockHeaders = self.headers.copy()
+                        stockHeaders["Idempotency-Key"] = f"stock_update_{variant['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                        
+                        stockResponse = requests.post(stockUrl, headers=stockHeaders, json=stockData)
+                        
+                        if stockResponse.status_code not in [204, 200]:
+                            print(f"Error updating stock for {productName} variant {variantIndex}: {stockResponse.text}")
+                            stockMsg = ", Stock update failed"
+                        else:
+                            stockMsg = f", Stock: {stockLevel}"
                     else:
-                        stockMsg = f", Stock: {stockLevel}"
-                else:
-                    stockMsg = ""
-                
-                print(f"Updated {productName} variant {variantIndex} to {priceMsg}{stockMsg}\n")
+                        stockMsg = ""
+                    
+                    print(f"Updated {productName} variant {variantIndex} to {priceMsg}{stockMsg}\n")
 
 
 
