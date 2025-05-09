@@ -382,22 +382,24 @@ class ShipstationConnection:
         self.expedite = False
         origin_zip = "23236"
         destination_zip = order['shipTo']['postalCode']
-        weight_lbs = order['weight']['value']
         temperature_high = self.get_temperature_high(destination_zip)
         order_total = order['orderTotal']
         max_days = 4
         dayOffset = 0
 
+        # Calculate actual total weight from items
+        total_weight = sum(item.get('weight', {}).get('value', 0) for item in order['items'])
+        
         # Set default weight to 8oz (0.5 lbs)
         order['weight']['value'] = 0.5
         order['weight']['units'] = 'pounds'
 
-        # Check for lightweight nonliving orders
+        # Check for nonliving orders
         if self.is_all_nonliving(order):
             self.nonliving = True
             self.tag_order(order, "nonliving")
             
-            if weight_lbs < 1:
+            if total_weight < 1:
                 print("Lightweight nonliving order - using USPS shipping")
                 self.tag_order(order, "USPS")
                 
@@ -482,7 +484,7 @@ class ShipstationConnection:
             return None, notes, temperature_high, dayOffset
 
         # Step 3: Get time in transit data once
-        transit_data = self.get_ups_time_in_transit(access_token, origin_zip, destination_zip, weight_lbs)
+        transit_data = self.get_ups_time_in_transit(access_token, origin_zip, destination_zip, total_weight)
 
         if not transit_data:
             print("Failed to retrieve Time in Transit data.")
