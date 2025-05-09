@@ -142,18 +142,19 @@ class ShipstationConnection:
         return orders
 
     def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, custom3, shipping_service=None, notes=None):
-        """
-        Updated to accept a dynamic shipping_service and optional notes parameter.
-        """
-
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         
         # Determine carrier code based on shipping service
         carrier_code = "usps" if shipping_service == "usps_ground_advantage" else "ups_walleted"
         
-        # Debug print
-        print(f"Order {order_number} - Carrier: {carrier_code}, Service: {shipping_service}")
+        # Debug prints
+        print(f"\nDEBUG - Update Order Details:")
+        print(f"Order Number: {order_number}")
+        print(f"Shipping Service: {shipping_service}")
+        print(f"Carrier Code: {carrier_code}")
+        print(f"Weight: {weight['value']} {weight['units']}")
+        print(f"Package Code: {weight.get('packageCode', 'Not set')}")
         
         data = {
             "orderKey": order_key,
@@ -184,10 +185,13 @@ class ShipstationConnection:
             },
             "shipByDate": ship_by_date,
         }
-        if order_id:
-            data['orderId'] = order_id  # Add this on after since replacements dont pass this (creating a new order)
 
         response = requests.post(url, headers=self.headers, json=data)
+        
+        # Debug response
+        print(f"DEBUG - API Response: {response.status_code}")
+        if response.status_code != 200:
+            print(f"DEBUG - Error response: {response.text}")
 
         if response.status_code != 200:
             print(f'Error updating order {order_id}:', response.text)
@@ -394,6 +398,8 @@ class ShipstationConnection:
         max_days = 4
         dayOffset = 0
 
+        print(f"\nDEBUG - Processing order {order['orderNumber']}")
+
         # Calculate actual total weight from items
         total_weight = 0
         for item in order['items']:
@@ -404,8 +410,11 @@ class ShipstationConnection:
                 # Convert to pounds if in ounces
                 if weight_units.lower() == 'ounces':
                     weight_value = weight_value / 16
-                    
+                
+                print(f"DEBUG - Item weight: {weight_value} pounds")    
                 total_weight += weight_value
+        
+        print(f"DEBUG - Total weight: {total_weight} pounds")
         
         # Set default weight to 8oz (0.5 lbs)
         order['weight']['value'] = 0.5
@@ -415,9 +424,11 @@ class ShipstationConnection:
         if self.is_all_nonliving(order):
             self.nonliving = True
             self.tag_order(order, "nonliving")
+            print(f"DEBUG - Order is nonliving")
             
             if total_weight < 1:
-                print("Lightweight nonliving order - using USPS shipping")
+                print(f"DEBUG - Lightweight nonliving order - using USPS shipping")
+                print(f"DEBUG - Setting weight to 4oz and package type to 130843")
                 self.tag_order(order, "USPS")
                 
                 # Update order weight to 4oz
@@ -427,18 +438,16 @@ class ShipstationConnection:
                 # Update package type
                 order['dimensions']['packageCode'] = '130843'
                 
-                # Set carrier to USPS
-                order['carrierCode'] = 'usps'
-                
                 return "usps_ground_advantage", "[NONLIVING - No Perlite]", temperature_high, dayOffset
 
+            print(f"DEBUG - Nonliving order too heavy for USPS: {total_weight} pounds")
             # Original nonliving logic for heavier items
-            current_day = datetime.now().weekday()  # Monday is 0, Sunday is 6
+            current_day = datetime.now().weekday()
             if current_day >= 3:
-                print("NONLIVING - It's late in the week, prioritizing")
+                print("DEBUG - Late week nonliving, prioritizing")
                 dayOffset = -4
             else:
-                print("NONLIVING - Early in the week, delaying til later")
+                print("DEBUG - Early week nonliving, delaying")
                 dayOffset = 1
 
             return None, "[NONLIVING - No Perlite]", temperature_high, dayOffset
