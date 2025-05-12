@@ -148,6 +148,9 @@ class ShipstationConnection:
         # Determine carrier code based on shipping service
         carrier_code = "stamps_com" if shipping_service == "usps_ground_advantage" else "ups_walleted"
         
+        # Set custom3 based on shipping service
+        custom3 = "USPS" if shipping_service == "usps_ground_advantage" else "Standard UPS"
+        
         # Debug prints
         print(f"\nDEBUG - Update Order Details:")
         print(f"Order Number: {order_number}")
@@ -171,6 +174,8 @@ class ShipstationConnection:
                 "width": 6.0,
                 "height": 4.0
             }
+        
+        print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
         
         data = {
             "orderKey": order_key,
@@ -847,9 +852,9 @@ class Squarespace:
             "Content-Type": "application/json"
         }
 
-        self.increaseWeight = 8  # 1 to 10, 10 is the most intensive increase in price.
+        self.increaseWeight = 7  # 1 to 10, 10 is the most intensive increase in price.
 
-        self.orderLimit = 15  # Number of orders to have in the queue before increasing price.
+        self.orderLimit = 20  # Number of orders to have in the queue before increasing price.
         self.lowValueStockLimit = self.orderLimit * 2  # 2x order limit threshold
 
         self.basePrices = {
