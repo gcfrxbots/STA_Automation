@@ -58,6 +58,7 @@ class ShipstationConnection:
     def get_order_details(self, order_id):
         url = f'{self.base_url}orders/{order_id}'
         response = requests.get(url, headers=self.headers)
+        print(response.json())
         if response.status_code == 200:
             return response.json()
         else:
