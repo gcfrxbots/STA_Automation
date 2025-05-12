@@ -163,8 +163,8 @@ class ShipstationConnection:
             "height": 4.0
         }
         
-        if shipping_service == "usps_ground_advantage":
-            dimensions["packageCode"] = "130843"
+        # if shipping_service == "usps_ground_advantage":
+        #     dimensions["packageCode"] = "130843"
         
         print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
         
@@ -192,7 +192,7 @@ class ShipstationConnection:
             },
             "shipByDate": ship_by_date,
         }
-
+        print(data)
         response = requests.post(url, headers=self.headers, json=data)
         
         # Debug response
