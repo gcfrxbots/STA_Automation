@@ -166,7 +166,7 @@ class ShipstationConnection:
         }
         
         if shipping_service == "usps_ground_advantage":
-            dimensions["packageCode"] = "package"
+            dimensions["packageCode"] = "130843"
         
         print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
         
