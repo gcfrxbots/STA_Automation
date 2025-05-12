@@ -417,8 +417,6 @@ class ShipstationConnection:
         max_days = 4
         dayOffset = 0
 
-        print(f"\nDEBUG - Processing order {order['orderNumber']}")
-
         # Calculate actual total weight from items
         total_weight = 0
         for item in order['items']:
@@ -430,10 +428,7 @@ class ShipstationConnection:
                 if weight_units.lower() == 'ounces':
                     weight_value = weight_value / 16
                 
-                print(f"DEBUG - Item weight: {weight_value} pounds")    
                 total_weight += weight_value
-        
-        print(f"DEBUG - Total weight: {total_weight} pounds")
         
         # Set default weight to 8oz (0.5 lbs)
         order['weight']['value'] = 0.5
@@ -443,11 +438,9 @@ class ShipstationConnection:
         if self.is_all_nonliving(order):
             self.nonliving = True
             self.tag_order(order, "nonliving")
-            print(f"DEBUG - Order is nonliving")
             
             if total_weight < 1:
-                print(f"DEBUG - Lightweight nonliving order - using USPS shipping")
-                print(f"DEBUG - Setting weight to 4oz and package type to 130843")
+                print("Lightweight nonliving order - using USPS shipping")
                 self.tag_order(order, "USPS")
                 
                 # Update order weight to 4oz
@@ -457,17 +450,18 @@ class ShipstationConnection:
                 # Update package type
                 order['dimensions']['packageCode'] = '130843'
                 
-                return "usps_ground_advantage", "[NONLIVING - No Perlite]", temperature_high, dayOffset
+                # For USPS boxes, return without any special notes
+                return "usps_ground_advantage", "", temperature_high, -2  # Prioritize USPS boxes
 
-            print(f"DEBUG - Nonliving order too heavy for USPS: {total_weight} pounds")
+            print(f"Nonliving order too heavy for USPS: {total_weight} pounds")
             # Original nonliving logic for heavier items
             current_day = datetime.now().weekday()
             if current_day >= 3:
-                print("DEBUG - Late week nonliving, prioritizing")
-                dayOffset = -4
+                print("Late week nonliving, prioritizing")
+                dayOffset = -5
             else:
-                print("DEBUG - Early week nonliving, delaying")
-                dayOffset = 1
+                print("Early week nonliving, prioritizing less")
+                dayOffset = -2 # Changed from 1 to -2 to prioritize more
 
             return None, "[NONLIVING - No Perlite]", temperature_high, dayOffset
 
