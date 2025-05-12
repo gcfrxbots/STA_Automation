@@ -149,7 +149,7 @@ class ShipstationConnection:
         carrier_code = "stamps_com" if shipping_service == "usps_ground_advantage" else "ups_walleted"
         
         # Set custom3 based on shipping service
-        custom3 = "USPS" if shipping_service == "usps_ground_advantage" else "Standard UPS"
+        custom3 = "USPS & SMALL BOX" if shipping_service == "usps_ground_advantage" else "Standard UPS"
         
         # Debug prints
         print(f"\nDEBUG - Update Order Details:")
@@ -848,7 +848,7 @@ class Squarespace:
 
         self.increaseWeight = 7  # 1 to 10, 10 is the most intensive increase in price.
 
-        self.orderLimit = 20  # Number of orders to have in the queue before increasing price.
+        self.orderLimit = 15  # Number of orders to have in the queue before increasing price.
         self.lowValueStockLimit = self.orderLimit * 2  # 2x order limit threshold
 
         self.basePrices = {
