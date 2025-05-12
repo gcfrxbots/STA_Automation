@@ -165,8 +165,6 @@ class ShipstationConnection:
             "height": 4.0
         }
         
-        if shipping_service == "usps_ground_advantage":
-            dimensions["packageCode"] = "130843"
         
         print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
         
@@ -182,7 +180,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "package" if shipping_service == "usps_ground_advantage" else None,
+            "packageCode": "130843" if shipping_service == "usps_ground_advantage" else None,
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
             "dimensions": dimensions,
