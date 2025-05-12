@@ -148,7 +148,7 @@ class ShipstationConnection:
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         
         # Determine carrier code based on shipping service
-        carrier_code = "usps" if shipping_service == "usps_ground_advantage" else "ups_walleted"
+        carrier_code = "stamps_com" if shipping_service == "usps_ground_advantage" else "ups_walleted"
         
         # Debug prints
         print(f"\nDEBUG - Update Order Details:")
@@ -165,8 +165,8 @@ class ShipstationConnection:
             "height": 4.0
         }
         
-        # if shipping_service == "usps_ground_advantage":
-        #     dimensions["packageCode"] = "130843"
+        if shipping_service == "usps_ground_advantage":
+            dimensions["packageCode"] = "package"
         
         print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
         
@@ -182,6 +182,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
+            "packageCode": "package" if shipping_service == "usps_ground_advantage" else None,
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
             "dimensions": dimensions,
