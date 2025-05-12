@@ -138,8 +138,6 @@ class ShipstationConnection:
             return []
 
         orders = response.json().get('orders', [])
-        print("ALL ORDERS")
-        print(orders)
         self.ordersInQueue = len(orders) # Track order count
         return orders
 
@@ -157,16 +155,22 @@ class ShipstationConnection:
         print(f"Carrier Code: {carrier_code}")
         print(f"Weight: {weight['value']} {weight['units']}")
         
-        # Set dimensions with package code for USPS
-        dimensions = {
-            "units": "inches",
-            "length": 8.0,
-            "width": 6.0,
-            "height": 4.0
-        }
-        
-        
-        print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
+        # Set dimensions based on shipping service
+        if shipping_service == "usps_ground_advantage":
+            dimensions = {
+                "units": "inches",
+                "length": 6.0,
+                "width": 4.0,
+                "height": 4.0,
+                "packageCode": "package"
+            }
+        else:
+            dimensions = {
+                "units": "inches",
+                "length": 8.0,
+                "width": 6.0,
+                "height": 4.0
+            }
         
         data = {
             "orderKey": order_key,
@@ -180,7 +184,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "130843" if shipping_service == "usps_ground_advantage" else None,
+            "packageCode": "package" if shipping_service == "usps_ground_advantage" else None,
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
             "dimensions": dimensions,
@@ -193,6 +197,7 @@ class ShipstationConnection:
             },
             "shipByDate": ship_by_date,
         }
+
         print("FINAL DATA")
         print(data)
         response = requests.post(url, headers=self.headers, json=data)
