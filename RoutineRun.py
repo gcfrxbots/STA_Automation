@@ -154,7 +154,19 @@ class ShipstationConnection:
         print(f"Shipping Service: {shipping_service}")
         print(f"Carrier Code: {carrier_code}")
         print(f"Weight: {weight['value']} {weight['units']}")
-        print(f"Package Code: {weight.get('packageCode', 'Not set')}")
+        
+        # Set dimensions with package code for USPS
+        dimensions = {
+            "units": "inches",
+            "length": 8.0,
+            "width": 6.0,
+            "height": 4.0
+        }
+        
+        if shipping_service == "usps_ground_advantage":
+            dimensions["packageCode"] = "130843"
+        
+        print(f"Package Code: {dimensions.get('packageCode', 'Not set')}")
         
         data = {
             "orderKey": order_key,
@@ -170,12 +182,7 @@ class ShipstationConnection:
             "serviceCode": shipping_service,
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
-            "dimensions": {
-                "units": "inches",
-                "length": 8.0,
-                "width": 6.0,
-                "height": 4.0
-            },
+            "dimensions": dimensions,
             "advancedOptions": {
                 "storeId": storeId,
                 "customField1": notes if notes else "",
