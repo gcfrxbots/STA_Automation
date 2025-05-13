@@ -384,12 +384,16 @@ class ShipstationConnection:
         destination_zip = order['shipTo']['postalCode']
         
         temperature_high = self.get_temperature_high(destination_zip)
-        print(f"Temperature at destination: {temperature_high}°F")
+        if temperature_high is None:
+            temperature_high = 60
+            print(f"Using default temperature: {temperature_high}°F")
+        else:
+            print(f"Temperature at destination: {temperature_high}°F")
         
         order_total = order['orderTotal']
         max_days = 4
         dayOffset = 0
-        notes = ""  # Initialize notes here
+        notes = ""
 
         total_weight = 0
         for item in order['items']:
