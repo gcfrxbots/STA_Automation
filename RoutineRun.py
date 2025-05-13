@@ -405,6 +405,15 @@ class ShipstationConnection:
         order['weight']['value'] = 0.5
         order['weight']['units'] = 'pounds'
 
+        # Check for expedited shipping first
+        if order['requestedShippingService']:
+            if "EXPEDITE" in order['requestedShippingService']:
+                print("Customer requested expedited shipping - using UPS 2nd Day Air")
+                self.expedite = True
+                self.tag_order(order, "expedite")
+                return "ups_2nd_day_air", "EXPEDITE " + notes, temperature_high, -10
+
+        # Then check for nonliving items
         if self.is_all_nonliving(order):
             self.nonliving = True
             self.tag_order(order, "nonliving")
@@ -449,12 +458,6 @@ class ShipstationConnection:
             print("Adding heat pack")
 
         if order['requestedShippingService']:
-            if "EXPEDITE" in order['requestedShippingService']:
-                print("Customer requested expedited shipping")
-                self.expedite = True
-                self.tag_order(order, "expedite")
-                return "ups_2nd_day_air", "EXPEDITE " + notes, temperature_high, -10
-
             if "Select" in order['requestedShippingService']:
                 print("Customer paid for 3 Day Select")
                 return "ups_3_day_select", notes, temperature_high, -2
