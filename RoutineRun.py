@@ -380,9 +380,6 @@ class ShipstationConnection:
         return average_high
 
     def determine_best_shipping(self, order):
-        print(f"\nDetermining shipping for order {order['orderNumber']}")
-        self.nonliving = False
-        self.expedite = False
         origin_zip = "23236"
         destination_zip = order['shipTo']['postalCode']
         
@@ -394,7 +391,6 @@ class ShipstationConnection:
         dayOffset = 0
 
         total_weight = 0
-        print("Calculating package weight:")
         for item in order['items']:
             if isinstance(item.get('weight'), dict):
                 weight_value = item['weight'].get('value', 0)
@@ -410,19 +406,18 @@ class ShipstationConnection:
         order['weight']['units'] = 'pounds'
 
         if self.is_all_nonliving(order):
-            print("Processing nonliving order")
             self.nonliving = True
             self.tag_order(order, "nonliving")
             
             if total_weight < 1:
-                print("Lightweight nonliving order - using USPS shipping")
+                print("Lightweight nonliving - using USPS shipping")
                 self.tag_order(order, "USPS")
                 order['weight']['value'] = 0.25
                 order['weight']['units'] = 'pounds'
                 order['dimensions']['packageCode'] = '130843'
                 return "usps_ground_advantage", "", temperature_high, -2
 
-            print(f"Heavy nonliving order ({total_weight}lbs) - using UPS")
+            print(f"Heavy nonliving ({total_weight}lbs) - using UPS")
             current_day = datetime.now().weekday()
             if current_day >= 3:
                 print("Late week nonliving - high priority")
@@ -435,24 +430,23 @@ class ShipstationConnection:
 
         if order.get('tagIds', []):
             if 30832 in order.get('tagIds', []):
-                print("Order marked as impatient - increasing priority")
+                print("Order marked impatient - increasing priority")
                 dayOffset = -4
 
         if temperature_high is None:
-            print("Unable to get temperature - assuming moderate weather")
             temperature_high = 70
 
         if temperature_high > 85 or temperature_high < 40:
             max_days = 3
-            print(f"Extreme temperature ({temperature_high}°F) - limiting transit time to {max_days} days")
+            print(f"Extreme temperature ({temperature_high}°F) - max transit {max_days} days")
 
         notes = ""
         if temperature_high > 85:
             notes = "[INCLUDE ICE PACK]"
-            print("High temperature - ice pack required")
+            print("Adding ice pack")
         elif temperature_high < 40:
             notes = "[INCLUDE HEAT PACK]"
-            print("Low temperature - heat pack required")
+            print("Adding heat pack")
 
         if order['requestedShippingService']:
             if "EXPEDITE" in order['requestedShippingService']:
@@ -467,17 +461,14 @@ class ShipstationConnection:
 
         rates = self.get_shipping_rates(order)
         if not rates:
-            print("Failed to get shipping rates - using default service")
             return None, notes, temperature_high, dayOffset
 
         access_token = self.get_ups_access_token()
         if not access_token:
-            print("Failed to get UPS token - using default service")
             return None, notes, temperature_high, dayOffset
 
         transit_data = self.get_ups_time_in_transit(access_token, origin_zip, destination_zip, total_weight)
         if not transit_data:
-            print("Failed to get transit times - using default service")
             return None, notes, temperature_high, dayOffset
 
         today = datetime.now().date()
@@ -487,7 +478,7 @@ class ShipstationConnection:
             shipping_day = shipping_date + timedelta(days=day)
             if shipping_day.weekday() == 6:
                 max_days -= 1
-                print(f"Sunday detected in transit window - adjusted max days to {max_days}")
+                print(f"Sunday in transit - adjusted max days to {max_days}")
                 break
 
         best_rate = None
@@ -510,7 +501,7 @@ class ShipstationConnection:
         # Check if the best rate is for UPS 3 Day Select and apply conditions
         if best_rate and best_rate['serviceCode'] == 'ups_3_day_select':
             if best_rate['cost'] > 9 and order_total < 35:
-                print(f"Switching to UPS Ground (3 Day Select rate: ${best_rate['cost']}, order total: ${order_total})")
+                print(f"Switching to UPS Ground (3 Day Select: ${best_rate['cost']}, order total: ${order_total})")
                 for rate in rates:
                     if rate['serviceCode'] == 'ups_ground':
                         best_rate = {
@@ -519,7 +510,7 @@ class ShipstationConnection:
                         }
                         break
             elif best_rate['cost'] > 11 and order_total < 50:
-                print(f"Switching to UPS Ground (3 Day Select rate: ${best_rate['cost']}, order total: ${order_total})")
+                print(f"Switching to UPS Ground (3 Day Select: ${best_rate['cost']}, order total: ${order_total})")
                 for rate in rates:
                     if rate['serviceCode'] == 'ups_ground':
                         best_rate = {
@@ -529,7 +520,7 @@ class ShipstationConnection:
                         break
 
         if not best_rate:
-            print("No valid rate found, defaulting to UPS Ground")
+            print("No valid rate found - using UPS Ground")
             for rate in rates:
                 if rate['serviceCode'] == 'ups_ground':
                     best_rate = {
@@ -539,20 +530,22 @@ class ShipstationConnection:
                     break
 
         if best_rate:
-            print(f"Selected shipping service: {best_rate['serviceCode']} at ${best_rate['cost']}")
+            print(f"Selected {best_rate['serviceCode']} at ${best_rate['cost']}")
             return best_rate['serviceCode'], notes, temperature_high, dayOffset
 
-        print("No cheaper services found, defaulting to UPS 3 Day Select")
+        print("No cheaper services found - using UPS 3 Day Select")
         return "ups_3_day_select", notes, temperature_high, dayOffset
 
     def run(self):
-        print("\nStarting order processing run...")
         orders = self.get_all_orders()
 
         for order in orders:
-            print(f"\nProcessing order: {order['orderNumber']}")
+            print("\n" + "="*30)
+            print(f"ORDER: {order['orderNumber']}")
+            print("="*30 + "\n")
+
             print(f"Items: {len(order['items'])}")
-            print(f"Initial weight: {order['weight']['value']} {order['weight']['units']}")
+            print(f"Weight: {order['weight']['value']} {order['weight']['units']}")
 
             tags = order.get('tagIds', [])
             if not tags:
@@ -563,15 +556,13 @@ class ShipstationConnection:
             orderNumber = order['orderNumber']
             orderDate = order['orderDate']
 
-            print("Determining shipping requirements...")
             selected_service, notes, temp, shipByDays = self.determine_best_shipping(order)
 
             if selected_service is None:
-                print(f"Using default shipping service: {self.shipping_service}")
+                print(f"Using default service: {self.shipping_service}")
                 selected_service = self.shipping_service
 
             if self.is_replacement_order(order):
-                print(f"Processing replacement order {orderNumber}")
                 tags.append(25911)
                 if 30806 in tags:
                     tags.remove(30806)
@@ -582,7 +573,6 @@ class ShipstationConnection:
                     print("No items remain after removing nonliving items - skipping order")
                     continue
 
-                print("Creating replacement order...")
                 self.cancel_order(orderId)
                 shipByDays = -5
                 orderKey = None
@@ -592,7 +582,7 @@ class ShipstationConnection:
                 notes += " [REPLACEMENT - ADD 3 FREE STEMS]"
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
-                print("Late order detected - adding compensation")
+                print("Late order - adding compensation")
                 tags.append(31803)
                 shipByDays -= 4
                 if not self.nonliving:
@@ -600,7 +590,7 @@ class ShipstationConnection:
 
             multipleItemCount = sum(1 for item in items if item['quantity'] > 1)
             if multipleItemCount > 0:
-                multipleItemReminder = f"Note: {multipleItemCount} item{'s' if multipleItemCount > 1 else ''} has multiple quantity"
+                multipleItemReminder = f"{multipleItemCount} item{'s' if multipleItemCount > 1 else ''} has multiple quantity"
                 print(multipleItemReminder)
             else:
                 multipleItemReminder = ""
@@ -628,9 +618,13 @@ class ShipstationConnection:
             )
 
             if success:
-                print(f"Successfully processed order {orderNumber}")
+                print(f"\nSuccessfully processed order {orderNumber}")
             else:
-                print(f"Failed to process order {orderNumber}")
+                print(f"\nFailed to process order {orderNumber}")
+
+            print("\n" + "="*30)
+            print("END OF ORDER")
+            print("="*30)
 
         print("\nOrder processing run completed!")
         return "Done!"
@@ -789,19 +783,13 @@ class Squarespace:
                         print(f"Failed to update {productName} variant {variantIndex}: {response.text}")
 
 
-
-
 if __name__ == "__main__":
-    # Extract the arguments
-    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, SquarespaceAPIKey= sys.argv
+    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, SquarespaceAPIKey = sys.argv
 
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
     sq = Squarespace(shipstation, SquarespaceAPIKey)
-    #sq = Squarespace()
-
 
     shipstation.run()
     plants = sq.getPlantProducts()
     sq.updateAllPrices(plants)
-    #sq.rollbackPlantPrices(plants)
 
