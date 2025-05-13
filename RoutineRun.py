@@ -510,7 +510,7 @@ class ShipstationConnection:
 
             if "Select" in order['requestedShippingService']:
                 print("Customer paid for 3 Day Select")
-                return "ups_3_day_select", notes, temperature_high, -2
+                return "ups_3_day_select", notes, temperature_high, -2  # Prioritize by 2 days
 
 
         # Step 1: Get shipping rates
@@ -1003,33 +1003,9 @@ class Squarespace:
             tags = product.get("tags", [])
             
             for variantIndex, variant in enumerate(variants):
-                if isSupplyHold:
-                    # Only update stock for supply hold products
-                    stockUrl = f"{self.baseUrl}commerce/inventory/adjustments"
-                    stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 500
-                    
-                    stockData = {
-                        "setFiniteOperations": [{
-                            "variantId": variant['id'],
-                            "quantity": stockLevel
-                        }]
-                    }
-                    
-                    stockHeaders = self.headers.copy()
-                    stockHeaders["Idempotency-Key"] = f"stock_update_{variant['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                    
-                    stockResponse = requests.post(stockUrl, headers=stockHeaders, json=stockData)
-                    
-                    if stockResponse.status_code not in [204, 200]:
-                        print(f"Error updating stock for supply hold {productName} variant {variantIndex}: {stockResponse.text}")
-                    else:
-                        print(f"Updated supply hold {productName} variant {variantIndex} stock to {stockLevel}\n")
-                    
-                else:
-                    # Regular price and stock updates for main store products
+                if not isSupplyHold:  # Only update prices for main store products
                     updateUrl = f"{self.baseUrl}commerce/products/{product['id']}/variants/{variant['id']}"
                     priceData = {}
-                    isLowValue = "lowval" in tags
                     
                     # Calculate prices for all products
                     basePrice = self.determinePrice(product, variantIndex)
@@ -1054,32 +1030,7 @@ class Squarespace:
                         print(f"Error updating prices for {productName} variant {variantIndex}: {response.text}")
                         continue
                     
-                    # Handle stock updates for low value items
-                    if isLowValue:
-                        stockLevel = 0 if self.shipstation.ordersInQueue > self.lowValueStockLimit else 900
-                        stockUrl = f"{self.baseUrl}commerce/inventory/adjustments"
-                        
-                        stockData = {
-                            "setFiniteOperations": [{
-                                "variantId": variant['id'],
-                                "quantity": stockLevel
-                            }]
-                        }
-                        
-                        stockHeaders = self.headers.copy()
-                        stockHeaders["Idempotency-Key"] = f"stock_update_{variant['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-                        
-                        stockResponse = requests.post(stockUrl, headers=stockHeaders, json=stockData)
-                        
-                        if stockResponse.status_code not in [204, 200]:
-                            print(f"Error updating stock for {productName} variant {variantIndex}: {stockResponse.text}")
-                            stockMsg = ", Stock update failed"
-                        else:
-                            stockMsg = f", Stock: {stockLevel}"
-                    else:
-                        stockMsg = ""
-                    
-                    print(f"Updated {productName} variant {variantIndex} to {priceMsg}{stockMsg}\n")
+                    print(f"Updated {productName} variant {variantIndex} to {priceMsg}\n")
 
 
 
