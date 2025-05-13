@@ -606,9 +606,9 @@ class ShipstationConnection:
                 notes += " [REPLACEMENT - ADD 3 FREE STEMS]"
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
-                print("Late order - adding compensation")
+                print("Late order!")
                 tags.append(31803)
-                shipByDays -= 4
+                shipByDays -= 6
                 if not self.nonliving:
                     notes += " [ADD 3 FREE STEMS FOR DELAY]"
 
