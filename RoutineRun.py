@@ -394,6 +394,7 @@ class ShipstationConnection:
         max_days = 4
         dayOffset = 0
         notes = ""
+        current_day = datetime.now().weekday()  # 0 = Monday, 6 = Sunday
 
         total_weight = 0
         for item in order['items']:
@@ -437,18 +438,33 @@ class ShipstationConnection:
                 order['weight']['value'] = 0.25
                 order['weight']['units'] = 'pounds'
                 order['dimensions']['packageCode'] = '130843'
-                return "usps_ground_advantage", "", temperature_high, -2
+                # Early week: delay nonliving (-2 becomes +3)
+                if current_day < 3:  # Mon-Wed
+                    print("Early week nonliving - low priority")
+                    dayOffset = 3
+                else:  # Thu-Sun
+                    print("Late week nonliving - high priority")
+                    dayOffset = -5
+                return "usps_ground_advantage", "", temperature_high, dayOffset
 
             print(f"Heavy nonliving ({total_weight}lbs) - using UPS")
-            current_day = datetime.now().weekday()
-            if current_day >= 3:
+            # Early week: delay nonliving (-2 becomes +3)
+            if current_day < 3:  # Mon-Wed
+                print("Early week nonliving - low priority")
+                dayOffset = 3
+            else:  # Thu-Sun
                 print("Late week nonliving - high priority")
                 dayOffset = -5
-            else:
-                print("Early week nonliving - standard priority")
-                dayOffset = -2
 
             return None, "[NONLIVING - No Perlite]", temperature_high, dayOffset
+
+        # Living plants get priority early in week
+        if current_day < 3:  # Mon-Wed
+            print("Early week living order - high priority")
+            dayOffset = -5
+        else:  # Thu-Sun
+            print("Late week living order - standard priority")
+            dayOffset = -2
 
         if order.get('tagIds', []):
             if 30832 in order.get('tagIds', []):
