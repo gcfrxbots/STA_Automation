@@ -278,7 +278,11 @@ class ShipstationConnection:
         return False
 
     def get_ups_time_in_transit(self, access_token, origin_zip, destination_zip, weight_lbs):
-        print(f"\nChecking UPS transit time from {origin_zip} to {destination_zip} ({weight_lbs}lbs)")
+        shipping_weight = 0.5
+        if weight_lbs > 2:
+            shipping_weight = 2
+        
+        print(f"\nChecking UPS transit time from {origin_zip} to {destination_zip} ({shipping_weight}lbs)")
         url = "https://onlinetools.ups.com/api/shipments/v1/transittimes"
 
         headers = {
@@ -293,7 +297,7 @@ class ShipstationConnection:
             "originPostalCode": origin_zip,
             "destinationCountryCode": "US",
             "destinationPostalCode": destination_zip,
-            "weight": str(weight_lbs),
+            "weight": str(shipping_weight),
             "weightUnitOfMeasure": "LBS",
             "shipDate": datetime.now().strftime("%Y-%m-%d")
         }
@@ -391,10 +395,10 @@ class ShipstationConnection:
             print(f"Temperature at destination: {temperature_high}°F")
         
         order_total = order['orderTotal']
-        max_days = 4
+        max_days = 3
         dayOffset = 0
         notes = ""
-        current_day = datetime.now().weekday()  # 0 = Monday, 6 = Sunday
+        current_day = datetime.now().weekday()
 
         total_weight = 0
         for item in order['items']:
@@ -408,7 +412,12 @@ class ShipstationConnection:
                 total_weight += weight_value
                 print(f"{item.get('name')}: {weight_value}lbs")
         
-        order['weight']['value'] = 0.5
+        shipping_weight = 0.5
+        if total_weight > 2:
+            shipping_weight = 2
+            print(f"Heavy order - using {shipping_weight}lbs for shipping")
+        
+        order['weight']['value'] = shipping_weight
         order['weight']['units'] = 'pounds'
 
         # Check temperature and set notes for temperature packs
