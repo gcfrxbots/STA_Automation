@@ -389,6 +389,7 @@ class ShipstationConnection:
         order_total = order['orderTotal']
         max_days = 4
         dayOffset = 0
+        notes = ""  # Initialize notes here
 
         total_weight = 0
         for item in order['items']:
@@ -404,6 +405,14 @@ class ShipstationConnection:
         
         order['weight']['value'] = 0.5
         order['weight']['units'] = 'pounds'
+
+        # Check temperature and set notes for temperature packs
+        if temperature_high > 85:
+            notes = "[INCLUDE ICE PACK]"
+            print("Adding ice pack")
+        elif temperature_high < 40:
+            notes = "[INCLUDE HEAT PACK]"
+            print("Adding heat pack")
 
         # Check for expedited shipping first
         if order['requestedShippingService']:
@@ -448,14 +457,6 @@ class ShipstationConnection:
         if temperature_high > 85 or temperature_high < 40:
             max_days = 3
             print(f"Extreme temperature ({temperature_high}°F) - max transit {max_days} days")
-
-        notes = ""
-        if temperature_high > 85:
-            notes = "[INCLUDE ICE PACK]"
-            print("Adding ice pack")
-        elif temperature_high < 40:
-            notes = "[INCLUDE HEAT PACK]"
-            print("Adding heat pack")
 
         if order['requestedShippingService']:
             if "Select" in order['requestedShippingService']:
