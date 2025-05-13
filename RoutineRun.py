@@ -601,10 +601,12 @@ class ShipstationConnection:
                     tags.remove(30806)
                     print("Removed replacement processing flag")
                 
-                items = self.remove_nonliving_items(order)
-                if not items:
-                    print("No items remain after removing nonliving items - skipping order")
-                    continue
+                # Only remove nonliving items if it's not already a nonliving order
+                if not self.nonliving:
+                    items = self.remove_nonliving_items(order)
+                    if not items:
+                        print("No items remain after removing nonliving items - skipping order")
+                        continue
 
                 self.cancel_order(orderId)
                 shipByDays = -5
