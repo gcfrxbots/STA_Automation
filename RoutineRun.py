@@ -329,7 +329,7 @@ class ShipstationConnection:
                 print(f"Ground: {business_transit_days} days")
 
         if transit_times['ups_ground']:
-            transit_times['ups_ground_saver'] = transit_times['ups_ground'] + 1
+            transit_times['ups_ground_saver'] = transit_times['ups_ground'] + 2
             print(f"Ground Saver: {transit_times['ups_ground_saver']} days")
 
         return transit_times
@@ -395,8 +395,8 @@ class ShipstationConnection:
             print(f"Temperature at destination: {temperature_high}°F")
         
         order_total = order['orderTotal']
-        max_days = 3
-        dayOffset = 0
+        max_days = 3  # Changes the actual max days the box can be in transit
+        dayOffset = 0  # Changes the Ship By Date in shipstation
         notes = ""
         current_day = datetime.now().weekday()
 
@@ -484,7 +484,7 @@ class ShipstationConnection:
             temperature_high = 70
 
         if temperature_high > 85 or temperature_high < 40:
-            max_days = 3
+            max_days -= 1
             print(f"Extreme temperature ({temperature_high}°F) - max transit {max_days} days")
 
         if order['requestedShippingService']:
