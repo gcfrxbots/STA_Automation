@@ -398,6 +398,16 @@ class ShipstationConnection:
             print(f"Temperature at destination: {temperature_high}°F")
         
         order_total = order['orderTotal']
+        
+        # Check for small orders first
+        if float(order_total) < 10:
+            print(f"Small order (${order_total}) - using USPS shipping")
+            self.tag_order(order, "USPS")
+            order['weight']['value'] = 0.25
+            order['weight']['units'] = 'pounds'
+            order['dimensions']['packageCode'] = '130843'
+            return "usps_ground_advantage", "", temperature_high, -2
+
         max_days = 2  # Changes the actual max days the box can be in transit
         dayOffset = 0  # Changes the Ship By Date in shipstation
         notes = ""
