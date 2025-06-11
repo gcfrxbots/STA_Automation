@@ -352,36 +352,39 @@ class ShipstationConnection:
         return True
 
     def get_temperature_high(self, zip_code):
-        print(f"Checking temperature for ZIP: {zip_code}")
-        api_key = self.openWeatherAPIKey
-        base_url = "http://api.openweathermap.org/data/2.5/forecast"
-        
-        if "-" in zip_code:
-            zip_code = zip_code.split("-")[0]
-            print(f"Using ZIP code: {zip_code}")
+        try:
+            print(f"Checking temperature for ZIP: {zip_code}")
+            api_key = self.openWeatherAPIKey
+            base_url = "http://api.openweathermap.org/data/2.5/forecast"
             
-        params = {
-            'zip': f'{zip_code},US',
-            'units': 'imperial',
-            'appid': api_key
-        }
+            if "-" in zip_code:
+                zip_code = zip_code.split("-")[0]
+                print(f"Using ZIP code: {zip_code}")
+                
+            params = {
+                'zip': f'{zip_code},US',
+                'units': 'imperial',
+                'appid': api_key
+            }
 
-        response = requests.get(base_url, params=params)
+            response = requests.get(base_url, params=params)
 
-        if response.status_code != 200:
-            print(f"Failed to get weather data: {response.text}")
-            return None
+            if response.status_code != 200:
+                print(f"Failed to get weather data: {response.text}")
+                return None
 
-        forecast_data = response.json()
-        high_temperatures = []
+            forecast_data = response.json()
+            high_temperatures = []
 
-        for entry in forecast_data['list']:
-            high_temp = entry['main']['temp_max']
-            high_temperatures.append(high_temp)
+            for entry in forecast_data['list']:
+                high_temp = entry['main']['temp_max']
+                high_temperatures.append(high_temp)
 
-        average_high = round(sum(high_temperatures) / len(high_temperatures))
-        print(f"Average high temperature: {average_high}°F")
-        return average_high
+            average_high = round(sum(high_temperatures) / len(high_temperatures))
+            print(f"Average high temperature: {average_high}°F")
+            return average_high
+        except:  # This is prone to breaking, so if all else fails just return 60
+            return 60
 
     def determine_best_shipping(self, order):
         origin_zip = "23236"
