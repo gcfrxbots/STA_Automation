@@ -395,7 +395,7 @@ class ShipstationConnection:
             print(f"Temperature at destination: {temperature_high}°F")
         
         order_total = order['orderTotal']
-        max_days = 3  # Changes the actual max days the box can be in transit
+        max_days = 2  # Changes the actual max days the box can be in transit
         dayOffset = 0  # Changes the Ship By Date in shipstation
         notes = ""
         current_day = datetime.now().weekday()
@@ -421,7 +421,7 @@ class ShipstationConnection:
         order['weight']['units'] = 'pounds'
 
         # Check temperature and set notes for temperature packs
-        if temperature_high > 85:
+        if temperature_high > 80:
             notes = "[INCLUDE ICE PACK]"
             print("Adding ice pack")
         elif temperature_high < 40:
