@@ -510,6 +510,7 @@ class ShipstationConnection:
         today = datetime.now().date()
         shipping_date = today
 
+        # Check for Sundays
         for day in range(1, max_days + 1):
             shipping_day = shipping_date + timedelta(days=day)
             if shipping_day.weekday() == 6:
@@ -517,59 +518,51 @@ class ShipstationConnection:
                 print(f"Sunday in transit - adjusted max days to {max_days}")
                 break
 
+        # Find service closest to max_days while considering cost ratio
         best_rate = None
+        closest_to_max = float('inf')
 
-        # Find the cheapest service within max_days constraint
+        # Sort rates by cost
+        valid_rates = []
         for rate in rates:
             service_code = rate['serviceCode']
             shipment_cost = rate['shipmentCost']
 
             if service_code in transit_data and transit_data[service_code] is not None:
-                business_transit_days = transit_data[service_code]
+                transit_days = transit_data[service_code]
+                
+                # Only consider if within max days
+                if transit_days <= max_days:
+                    cost_ratio = (shipment_cost / order_total) * 100 if order_total > 0 else float('inf')
+                    valid_rates.append({
+                        'serviceCode': service_code,
+                        'cost': shipment_cost,
+                        'transitDays': transit_days,
+                        'costRatio': cost_ratio
+                    })
 
-                if business_transit_days <= max_days:
-                    if best_rate is None or shipment_cost < best_rate['cost']:
-                        best_rate = {
-                            'serviceCode': rate['serviceCode'],
-                            'cost': shipment_cost
-                        }
+        # Sort by transit days (descending) to prefer slower services within max_days
+        valid_rates.sort(key=lambda x: (-x['transitDays'], x['cost']))
 
-        # Check if the best rate is for UPS 3 Day Select and apply conditions
-        if best_rate and best_rate['serviceCode'] == 'ups_3_day_select':
-            if best_rate['cost'] > 9 and order_total < 35:
-                print(f"Switching to UPS Ground (3 Day Select: ${best_rate['cost']}, order total: ${order_total})")
-                for rate in rates:
-                    if rate['serviceCode'] == 'ups_ground':
-                        best_rate = {
-                            'serviceCode': rate['serviceCode'],
-                            'cost': rate['shipmentCost']
-                        }
-                        break
-            elif best_rate['cost'] > 11 and order_total < 50:
-                print(f"Switching to UPS Ground (3 Day Select: ${best_rate['cost']}, order total: ${order_total})")
-                for rate in rates:
-                    if rate['serviceCode'] == 'ups_ground':
-                        best_rate = {
-                            'serviceCode': rate['serviceCode'],
-                            'cost': rate['shipmentCost']
-                        }
-                        break
+        for rate in valid_rates:
+            # If shipping cost is more than 60% of order total, skip this option
+            if rate['costRatio'] > 60:
+                print(f"Skipping {rate['serviceCode']} - cost ratio too high ({rate['costRatio']:.1f}%)")
+                continue
 
-        if not best_rate:
-            print("No valid rate found - using UPS Ground")
-            for rate in rates:
-                if rate['serviceCode'] == 'ups_ground':
-                    best_rate = {
-                        'serviceCode': rate['serviceCode'],
-                        'cost': rate['shipmentCost']
-                    }
-                    break
+            best_rate = rate
+            print(f"Selected {rate['serviceCode']} - {rate['transitDays']} days, ${rate['cost']} ({rate['costRatio']:.1f}% of order)")
+            break
+
+        # If no valid rate found within cost ratio, pick the cheapest that meets max_days
+        if not best_rate and valid_rates:
+            best_rate = min(valid_rates, key=lambda x: x['cost'])
+            print(f"Defaulting to cheapest option: {best_rate['serviceCode']} - ${best_rate['cost']}")
 
         if best_rate:
-            print(f"Selected {best_rate['serviceCode']} at ${best_rate['cost']}")
             return best_rate['serviceCode'], notes, temperature_high, dayOffset
 
-        print("No cheaper services found - using UPS 3 Day Select")
+        print("No services found - using UPS 3 Day Select")
         return "ups_3_day_select", notes, temperature_high, dayOffset
 
     def run(self):
