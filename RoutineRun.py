@@ -3,7 +3,142 @@ import requests
 import random
 import sys
 import math
+import json
 from datetime import datetime, timedelta
+
+# =============================================================================
+# TEMPERATURE-BASED SPEED MODIFIER ADJUSTMENT
+# =============================================================================
+
+def getLocalTemperatureAdjustment():
+    """Get local temperature and adjust SPEED_MODIFIER based on temperature extremes"""
+    try:
+        # Load config to get API key
+        config = None
+        try:
+            with open('config.json') as configFile:
+                config = json.loads(configFile.read())
+        except:
+            print("Could not load config.json for temperature check - using default SPEED_MODIFIER")
+            return 3
+        
+        apiKey = config.get('openWeatherAPIKey')
+        if not apiKey:
+            print("No OpenWeather API key found - using default SPEED_MODIFIER")
+            return 3
+        
+        localZip = "23236"
+        baseUrl = "http://api.openweathermap.org/data/2.5/forecast"
+        
+        params = {
+            'zip': f'{localZip},US',
+            'units': 'imperial',
+            'appid': apiKey
+        }
+
+        response = requests.get(baseUrl, params=params)
+        
+        if response.status_code != 200:
+            print(f"Failed to get weather data: {response.text} - using default SPEED_MODIFIER")
+            return 3
+
+        forecastData = response.json()
+        temperatures = []
+
+        # Get temperatures for next 5 days
+        for entry in forecastData['list']:
+            temp = entry['main']['temp']
+            temperatures.append(temp)
+
+        # Calculate average temperature
+        avgTemp = sum(temperatures) / len(temperatures)
+        print(f"Local average temperature (5-day forecast): {avgTemp:.1f}°F")
+        
+        # Calculate adjustment based on temperature extremes
+        adjustment = 0
+        
+        if avgTemp > 70:
+            # For every 10 degrees above 70, increase by 1
+            degreesAbove = avgTemp - 70
+            adjustment = int(degreesAbove / 10)
+            print(f"Temperature {avgTemp:.1f}°F is {degreesAbove:.1f}° above 70°F - adding {adjustment} to speed modifier")
+        elif avgTemp < 50:
+            # For every 10 degrees below 50, increase by 1
+            degreesBelow = 50 - avgTemp
+            adjustment = int(degreesBelow / 10)
+            print(f"Temperature {avgTemp:.1f}°F is {degreesBelow:.1f}° below 50°F - adding {adjustment} to speed modifier")
+        else:
+            print(f"Temperature {avgTemp:.1f}°F is within normal range (50-70°F) - no adjustment needed")
+        
+        return adjustment
+        
+    except Exception as e:
+        print(f"Error getting temperature adjustment: {str(e)} - using default SPEED_MODIFIER")
+        return 3
+
+# =============================================================================
+# CONFIGURATION SETTINGS
+# =============================================================================
+
+# Base Speed Modifier: -10 to 10, affects shipping speed preference
+# Higher values prefer faster shipping, lower values prefer slower shipping
+BASE_SPEED_MODIFIER = 3
+
+# Adjust speed modifier based on local temperature
+TEMPERATURE_ADJUSTMENT = getLocalTemperatureAdjustment()
+SPEED_MODIFIER = BASE_SPEED_MODIFIER + TEMPERATURE_ADJUSTMENT
+
+# Ensure speed modifier stays within bounds
+SPEED_MODIFIER = max(-10, min(10, SPEED_MODIFIER))
+
+print(f"Base Speed Modifier: {BASE_SPEED_MODIFIER}")
+print(f"Temperature Adjustment: +{TEMPERATURE_ADJUSTMENT}")
+print(f"Final Speed Modifier: {SPEED_MODIFIER}")
+
+# Max transit days for shipping (base value, will be adjusted by temperature and day of week)
+MAX_TRANSIT_DAYS = 4
+
+# Order queue threshold for price increases
+ORDER_LIMIT = 25
+
+# Weight multiplier for price increases when order queue is high
+INCREASE_WEIGHT = 6
+
+# Small order threshold for USPS shipping
+SMALL_ORDER_THRESHOLD = 10
+
+# Upgrade percentages (base values, will be adjusted by speed modifier)
+THREE_DAY_UPGRADE_PERCENTAGE = 20  # Upgrade to 3 Day if cost is less than X% of order
+TWO_DAY_UPGRADE_PERCENTAGE = 25    # Upgrade to 2 Day if cost is less than X% of order
+
+# =============================================================================
+
+def loadConfigFromFile():
+    """Load API keys and secrets from config.json file"""
+    try:
+        with open('config.json') as configFile:
+            config = json.loads(configFile.read())
+            
+            return {
+                'shipstationAPIKey': config['shipstationAPIKey'],
+                'shipstaionAPISecret': config['shipstaionAPISecret'],
+                'UPSAuthID': config['UPSAuthID'],
+                'UPSAuthPass': config['UPSAuthPass'],
+                'openWeatherAPIKey': config['openWeatherAPIKey'],
+                'SquarespaceAPIKey': config['SquarespaceAPIKey']
+            }
+    except FileNotFoundError:
+        print("Config file 'config.json' not found")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"Error parsing config file: {str(e)}")
+        return None
+    except KeyError as e:
+        print(f"Missing required key in config file: {str(e)}")
+        return None
+    except Exception as e:
+        print(f"Error reading config file: {str(e)}")
+        return None
 
 class ShipstationConnection:
     def __init__(self, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey):
@@ -18,6 +153,10 @@ class ShipstationConnection:
         self.nonliving = False
         self.expedite = False
         self.ordersInQueue = 0
+        
+        # Use global speed modifier
+        self.speedModifier = max(-10, min(10, SPEED_MODIFIER))
+        print(f"Speed Modifier set to: {self.speedModifier}")
 
     def _generate_headers(self):
         credentials = f"{self.api_key}:{self.api_secret}"
@@ -67,7 +206,8 @@ class ShipstationConnection:
         if response.status_code == 200:
             products = response.json()
             if products and 'products' in products and products['products']:
-                return products['products'][0]
+                product = products['products'][0]
+                return product
         print(f'Failed to fetch product {sku}: {response.text}')
         return None
 
@@ -91,6 +231,24 @@ class ShipstationConnection:
     def get_shipping_rates(self, order):
         print(f"Getting shipping rates for {order['orderNumber']} to {order['shipTo']['city']}, {order['shipTo']['state']}")
         url = f'{self.base_url}shipments/getrates'
+        
+        # Handle missing dimensions
+        if not order.get('dimensions'):
+            print("No dimensions found - using default dimensions")
+            dimensions = {
+                "units": "inches",
+                "length": 8.0,
+                "width": 6.0,
+                "height": 4.0
+            }
+        else:
+            dimensions = {
+                "units": order['dimensions'].get('units', 'inches'),
+                "length": order['dimensions'].get('length', 8.0),
+                "width": order['dimensions'].get('width', 6.0),
+                "height": order['dimensions'].get('height', 4.0)
+            }
+        
         data = {
             "carrierCode": "ups_walleted",
             "serviceCode": "",
@@ -104,12 +262,7 @@ class ShipstationConnection:
                 "value": order['weight']['value'],
                 "units": order['weight']['units']
             },
-            "dimensions": {
-                "units": order['dimensions']['units'],
-                "length": order['dimensions']['length'],
-                "width": order['dimensions']['width'],
-                "height": order['dimensions']['height']
-            },
+            "dimensions": dimensions,
             "confirmation": "delivery",
             "residential": order['shipTo']['residential']
         }
@@ -211,25 +364,50 @@ class ShipstationConnection:
             print("PayPal order detected - not marking as nonliving")
             return False
 
+        print(f"Checking if order {order['orderNumber']} is nonliving...")
+        nonliving_items = 0
+        total_items_with_sku = 0
+        
         for item in order['items']:
+            print(f"Checking item: {item.get('name', 'Unknown')} (SKU: {item.get('sku', 'No SKU')})")
             if item['sku']:
+                total_items_with_sku += 1
                 product_details = self.get_product_details(item['sku'])
                 if not product_details:
                     print(f"Could not fetch details for SKU {item['sku']} - assuming not nonliving")
                     return False
-                    
+                
+                print(f"Product details for {item['sku']}: {product_details.get('name', 'Unknown')}")
                 categories = product_details.get('productCategory', [])
+                print(f"Categories: {categories}")
+                
                 if isinstance(categories, dict):
-                    if "Nonliving" not in categories.values():
+                    if "Nonliving" in categories.values():
+                        nonliving_items += 1
+                        print(f"Item {item['sku']} is nonliving")
+                    else:
+                        print(f"Categories dict does not contain 'Nonliving' - values: {categories.values()}")
                         return False
                 elif isinstance(categories, list):
-                    if "Nonliving" not in categories:
+                    if "Nonliving" in categories:
+                        nonliving_items += 1
+                        print(f"Item {item['sku']} is nonliving")
+                    else:
+                        print(f"Categories list does not contain 'Nonliving' - list: {categories}")
                         return False
                 else:
+                    print(f"Categories is neither dict nor list: {type(categories)}")
                     return False
+            else:
+                print(f"Skipping item without SKU: {item.get('name', 'Unknown')}")
 
-        print("Order contains only nonliving items")
-        return True
+        # Only mark as nonliving if all items with SKUs are nonliving
+        if total_items_with_sku > 0 and nonliving_items == total_items_with_sku:
+            print(f"Order contains only nonliving items ({nonliving_items}/{total_items_with_sku} items with SKUs)")
+            return True
+        else:
+            print(f"Order is not all nonliving ({nonliving_items}/{total_items_with_sku} items with SKUs are nonliving)")
+            return False
 
     def remove_nonliving_items(self, order):
         print("Removing nonliving items from order...")
@@ -310,6 +488,7 @@ class ShipstationConnection:
 
         data = response.json()
         transit_times = {
+            'ups_2nd_day_air': None,
             'ups_3_day_select': None,
             'ups_ground': None,
             'ups_ground_saver': None
@@ -321,7 +500,10 @@ class ShipstationConnection:
             service_level = service['serviceLevel']
             business_transit_days = int(service['businessTransitDays'])
             
-            if service_level == '3DS':
+            if service_level == '2DA':
+                transit_times['ups_2nd_day_air'] = business_transit_days
+                print(f"2nd Day Air: {business_transit_days} days")
+            elif service_level == '3DS':
                 transit_times['ups_3_day_select'] = business_transit_days
                 print(f"3 Day Select: {business_transit_days} days")
             elif service_level == 'GND':
@@ -329,7 +511,7 @@ class ShipstationConnection:
                 print(f"Ground: {business_transit_days} days")
 
         if transit_times['ups_ground']:
-            transit_times['ups_ground_saver'] = transit_times['ups_ground'] + 2
+            transit_times['ups_ground_saver'] = transit_times['ups_ground'] + 1
             print(f"Ground Saver: {transit_times['ups_ground_saver']} days")
 
         return transit_times
@@ -398,21 +580,9 @@ class ShipstationConnection:
             print(f"Temperature at destination: {temperature_high}°F")
         
         order_total = order['orderTotal']
-        
-        # Check for small orders first
-        if float(order_total) < 10:
-            print(f"Small order (${order_total}) - using USPS shipping")
-            self.tag_order(order, "USPS")
-            order['weight']['value'] = 0.25
-            order['weight']['units'] = 'pounds'
-            order['dimensions']['packageCode'] = '130843'
-            return "usps_ground_advantage", "", temperature_high, -2
-
-        max_days = 2  # Changes the actual max days the box can be in transit
-        dayOffset = 0  # Changes the Ship By Date in shipstation
-        notes = ""
         current_day = datetime.now().weekday()
-
+        
+        # Calculate total weight
         total_weight = 0
         for item in order['items']:
             if isinstance(item.get('weight'), dict):
@@ -432,107 +602,91 @@ class ShipstationConnection:
         
         order['weight']['value'] = shipping_weight
         order['weight']['units'] = 'pounds'
-
-        # Check temperature and set notes for temperature packs
-        if temperature_high > 80:
-            notes = "[INCLUDE ICE PACK]"
-            print("Adding ice pack")
-        elif temperature_high < 40:
-            notes = "[INCLUDE HEAT PACK]"
-            print("Adding heat pack")
-
-        # Check for expedited shipping first
+        
+        # Check for customer-paid services FIRST (before nonliving/small order checks)
+        customerPaidForThreeDay = False
+        customerPaidForTwoDay = False
+        
         if order['requestedShippingService']:
-            if "EXPEDITE" in order['requestedShippingService']:
+            if "Select" in order['requestedShippingService']:
+                customerPaidForThreeDay = True
+                print("Customer paid for 3 Day Select - will use 3 Day Select")
+            elif "2nd Day" in order['requestedShippingService'] or "Second Day" in order['requestedShippingService']:
+                customerPaidForTwoDay = True
+                print("Customer paid for 2nd Day Air - will use 2nd Day Air")
+            elif "EXPEDITE" in order['requestedShippingService']:
                 print("Customer requested expedited shipping - using UPS 2nd Day Air")
                 self.expedite = True
                 self.tag_order(order, "expedite")
-                return "ups_2nd_day_air", "EXPEDITE " + notes, temperature_high, -10
-
-        # Then check for nonliving items
+                return "ups_2nd_day_air", "EXPEDITE", temperature_high, -10
+        
+        # Check for nonliving items (but respect customer-paid services)
         if self.is_all_nonliving(order):
             self.nonliving = True
             self.tag_order(order, "nonliving")
             
-            if total_weight < 1:
-                print("Lightweight nonliving - using USPS shipping")
+            # Nonliving orders use USPS unless customer paid for UPS
+            if customerPaidForThreeDay or customerPaidForTwoDay:
+                print("Nonliving order but customer paid for UPS - using UPS service")
+                # Continue with UPS logic below
+            else:
+                print("Nonliving order - using USPS shipping")
                 self.tag_order(order, "USPS")
                 order['weight']['value'] = 0.25
                 order['weight']['units'] = 'pounds'
+                # Ensure dimensions exist before setting packageCode
+                if not order.get('dimensions'):
+                    order['dimensions'] = {}
                 order['dimensions']['packageCode'] = '130843'
-                # Early week: delay nonliving (-2 becomes +3)
-                if current_day < 3:  # Mon-Wed
-                    print("Early week nonliving - low priority")
-                    dayOffset = 3
-                else:  # Thu-Sun
-                    print("Late week nonliving - high priority")
-                    dayOffset = -5
-                return "usps_ground_advantage", "", temperature_high, dayOffset
+                return "usps_ground_advantage", "", temperature_high, -2
+        
+        # Check for small orders (but respect customer-paid services)
+        if float(order_total) < SMALL_ORDER_THRESHOLD:
+            if customerPaidForThreeDay or customerPaidForTwoDay:
+                print(f"Small order (${order_total}) but customer paid for UPS - using UPS service")
+                # Continue with UPS logic below
+            else:
+                print(f"Small order (${order_total}) - using USPS shipping")
+                self.tag_order(order, "USPS")
+                order['weight']['value'] = 0.25
+                order['weight']['units'] = 'pounds'
+                # Ensure dimensions exist before setting packageCode
+                if not order.get('dimensions'):
+                    order['dimensions'] = {}
+                order['dimensions']['packageCode'] = '130843'
+                return "usps_ground_advantage", "", temperature_high, -2
 
-            print(f"Heavy nonliving ({total_weight}lbs) - using UPS")
-            # Early week: delay nonliving (-2 becomes +3)
-            if current_day < 3:  # Mon-Wed
-                print("Early week nonliving - low priority")
-                dayOffset = 3
-            else:  # Thu-Sun
-                print("Late week nonliving - high priority")
-                dayOffset = -5
-
-            return None, "[NONLIVING - No Perlite]", temperature_high, dayOffset
-
-        # Living plants get priority early in week
-        if current_day < 3:  # Mon-Wed
-            print("Early week living order - high priority")
-            dayOffset = -5
-        else:  # Thu-Sun
-            print("Late week living order - standard priority")
-            dayOffset = -2
-
-        if order.get('tagIds', []):
-            if 30832 in order.get('tagIds', []):
-                print("Order marked impatient - increasing priority")
-                dayOffset = -4
-
-        if temperature_high is None:
-            temperature_high = 70
-
-        if temperature_high > 85 or temperature_high < 40:
+        # Calculate max transit days based on temperature and day of week (IGNORING speed modifier)
+        max_days = MAX_TRANSIT_DAYS
+        
+        # Adjust for extreme temperatures
+        if temperature_high > 80 or temperature_high < 40:
             max_days -= 1
             print(f"Extreme temperature ({temperature_high}°F) - max transit {max_days} days")
+        
+        # Adjust for day of week (reduce max days on weekends)
+        if current_day >= 5:  # Friday, Saturday, Sunday
+            max_days -= 1
+            print(f"Weekend order - max transit {max_days} days")
+        
+        # Ensure minimum of 2 days
+        max_days = max(2, max_days)
+        print(f"Final max transit days: {max_days}")
 
-        if order['requestedShippingService']:
-            if "Select" in order['requestedShippingService']:
-                print("Customer paid for 3 Day Select")
-                return "ups_3_day_select", notes, temperature_high, -2
-
+        # Get shipping rates and transit times
         rates = self.get_shipping_rates(order)
         if not rates:
-            return None, notes, temperature_high, dayOffset
+            return None, "", temperature_high, -2
 
         access_token = self.get_ups_access_token()
         if not access_token:
-            return None, notes, temperature_high, dayOffset
+            return None, "", temperature_high, -2
 
         transit_data = self.get_ups_time_in_transit(access_token, origin_zip, destination_zip, total_weight)
         if not transit_data:
-            return None, notes, temperature_high, dayOffset
+            return None, "", temperature_high, -2
 
-        today = datetime.now().date()
-        shipping_date = today
-
-        # Check for Sundays
-        for day in range(1, max_days + 1):
-            shipping_day = shipping_date + timedelta(days=day)
-            if shipping_day.weekday() == 6:
-                max_days -= 1
-                print(f"Sunday in transit - adjusted max days to {max_days}")
-                break
-
-        # Find service closest to max_days while considering cost ratio
-        best_rate = None
-        closest_to_max = float('inf')
-
-        # Sort rates by cost
+        # Find valid rates within max days
         valid_rates = []
         for rate in rates:
             service_code = rate['serviceCode']
@@ -541,39 +695,114 @@ class ShipstationConnection:
             if service_code in transit_data and transit_data[service_code] is not None:
                 transit_days = transit_data[service_code]
                 
-                # Only consider if within max days
                 if transit_days <= max_days:
-                    cost_ratio = (shipment_cost / order_total) * 100 if order_total > 0 else float('inf')
                     valid_rates.append({
                         'serviceCode': service_code,
                         'cost': shipment_cost,
-                        'transitDays': transit_days,
-                        'costRatio': cost_ratio
+                        'transitDays': transit_days
                     })
 
-        # Sort by transit days (descending) to prefer slower services within max_days
-        valid_rates.sort(key=lambda x: (-x['transitDays'], x['cost']))
+        if not valid_rates:
+            print("No services found within max transit days - using fastest available")
+            # Get all rates and pick the fastest
+            all_rates = []
+            for rate in rates:
+                service_code = rate['serviceCode']
+                shipment_cost = rate['shipmentCost']
 
-        for rate in valid_rates:
-            # If shipping cost is more than 60% of order total, skip this option
-            if rate['costRatio'] > 60:
-                print(f"Skipping {rate['serviceCode']} - cost ratio too high ({rate['costRatio']:.1f}%)")
-                continue
+                if service_code in transit_data and transit_data[service_code] is not None:
+                    transit_days = transit_data[service_code]
+                    all_rates.append({
+                        'serviceCode': service_code,
+                        'cost': shipment_cost,
+                        'transitDays': transit_days
+                    })
+            
+            if all_rates:
+                # Sort by transit days (fastest first)
+                all_rates.sort(key=lambda x: x['transitDays'])
+                best_rate = all_rates[0]
+                print(f"Using fastest available service: {best_rate['serviceCode']} - {best_rate['transitDays']} days")
+                return best_rate['serviceCode'], "", temperature_high, -2
+            else:
+                print("No services found - using UPS 3 Day Select")
+                return "ups_3_day_select", "", temperature_high, -2
 
-            best_rate = rate
-            print(f"Selected {rate['serviceCode']} - {rate['transitDays']} days, ${rate['cost']} ({rate['costRatio']:.1f}% of order)")
-            break
-
-        # If no valid rate found within cost ratio, pick the cheapest that meets max_days
-        if not best_rate and valid_rates:
+        # Handle customer-paid services
+        if customerPaidForTwoDay:
+            # Customer paid for 2nd Day Air - use it
+            second_day_rate = None
+            for rate in valid_rates:
+                if rate['serviceCode'] == 'ups_2nd_day_air':
+                    second_day_rate = rate
+                    break
+            
+            if second_day_rate:
+                best_rate = second_day_rate
+                print(f"Customer paid for 2nd Day Air - using 2nd Day Air: ${best_rate['cost']}")
+            else:
+                # 2nd Day Air not available, use fastest available
+                best_rate = min(valid_rates, key=lambda x: x['transitDays'])
+                print(f"2nd Day Air not available - using fastest: {best_rate['serviceCode']} - ${best_rate['cost']}")
+        elif customerPaidForThreeDay:
+            # Customer paid for 3 Day Select - use it
+            three_day_rate = None
+            for rate in valid_rates:
+                if rate['serviceCode'] == 'ups_3_day_select':
+                    three_day_rate = rate
+                    break
+            
+            if three_day_rate:
+                best_rate = three_day_rate
+                print(f"Customer paid for 3 Day Select - using 3 Day Select: ${best_rate['cost']}")
+            else:
+                # 3 Day Select not available, use cheapest
+                best_rate = min(valid_rates, key=lambda x: x['cost'])
+                print(f"3 Day Select not available - using cheapest: {best_rate['serviceCode']} - ${best_rate['cost']}")
+        else:
+            # No customer-paid service - pick the cheapest service within max days
             best_rate = min(valid_rates, key=lambda x: x['cost'])
-            print(f"Defaulting to cheapest option: {best_rate['serviceCode']} - ${best_rate['cost']}")
+            print(f"Selected cheapest service: {best_rate['serviceCode']} - {best_rate['transitDays']} days, ${best_rate['cost']}")
 
-        if best_rate:
-            return best_rate['serviceCode'], notes, temperature_high, dayOffset
+            # Check for 3 Day Select upgrade
+            three_day_rate = None
+            for rate in valid_rates:
+                if rate['serviceCode'] == 'ups_3_day_select':
+                    three_day_rate = rate
+                    break
+            
+            if three_day_rate and three_day_rate['serviceCode'] != best_rate['serviceCode']:
+                cost_percentage = (three_day_rate['cost'] / float(order_total)) * 100
+                
+                # Adjust percentage based on speed modifier
+                adjusted_percentage = THREE_DAY_UPGRADE_PERCENTAGE + (self.speedModifier * 2)
+                
+                print(f"3 Day Select cost: ${three_day_rate['cost']:.2f} ({cost_percentage:.1f}% of order, threshold: {adjusted_percentage:.1f}%)")
+                
+                if cost_percentage <= adjusted_percentage:
+                    best_rate = three_day_rate
+                    print(f"Upgraded to 3 Day Select - {best_rate['transitDays']} days, ${best_rate['cost']}")
 
-        print("No services found - using UPS 3 Day Select")
-        return "ups_3_day_select", notes, temperature_high, dayOffset
+            # Check for 2nd Day Air upgrade
+            second_day_rate = None
+            for rate in valid_rates:
+                if rate['serviceCode'] == 'ups_2nd_day_air':
+                    second_day_rate = rate
+                    break
+            
+            if second_day_rate and second_day_rate['serviceCode'] != best_rate['serviceCode']:
+                cost_percentage = (second_day_rate['cost'] / float(order_total)) * 100
+                
+                # Adjust percentage based on speed modifier
+                adjusted_percentage = TWO_DAY_UPGRADE_PERCENTAGE + (self.speedModifier * 2)
+                
+                print(f"2nd Day Air cost: ${second_day_rate['cost']:.2f} ({cost_percentage:.1f}% of order, threshold: {adjusted_percentage:.1f}%)")
+                
+                if cost_percentage <= adjusted_percentage:
+                    best_rate = second_day_rate
+                    print(f"Upgraded to 2nd Day Air - {best_rate['transitDays']} days, ${best_rate['cost']}")
+
+        return best_rate['serviceCode'], "", temperature_high, -2
 
     def run(self):
         orders = self.get_all_orders()
@@ -681,14 +910,14 @@ class Squarespace:
             "Content-Type": "application/json"
         }
 
-        self.increaseWeight = 7  
-        self.orderLimit = 20  
-        self.lowValueStockLimit = self.orderLimit * 2  
+        self.increaseWeight = INCREASE_WEIGHT
+        self.orderLimit = ORDER_LIMIT
+        self.lowValueStockLimit = self.orderLimit * 2
 
         self.basePrices = {
-            "plant": 6.99,
-            "rare": 9.99,
-            "vRare": 12.99,
+            "plant": 4.99,
+            "rare": 7.99,
+            "vRare": 11.99,
             "bettaShrimp0": 13.99,
             "bettaShrimp1": 19.99,
             "bundle0": 13.99,
@@ -825,7 +1054,26 @@ class Squarespace:
 
 
 if __name__ == "__main__":
-    _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, SquarespaceAPIKey = sys.argv
+    # Try to load from config file first
+    config = loadConfigFromFile()
+    
+    if config:
+        print("Using config file for API keys")
+        shipstationAPIKey = config['shipstationAPIKey']
+        shipstaionAPISecret = config['shipstaionAPISecret']
+        UPSAuthID = config['UPSAuthID']
+        UPSAuthPass = config['UPSAuthPass']
+        openWeatherAPIKey = config['openWeatherAPIKey']
+        SquarespaceAPIKey = config['SquarespaceAPIKey']
+    elif len(sys.argv) >= 7:
+        print("Using command line arguments for API keys")
+        _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, SquarespaceAPIKey = sys.argv[:7]
+    else:
+        print("No config file found and insufficient command line arguments provided.")
+        print("Please either:")
+        print("1. Create a config.json file with your API keys, or")
+        print("2. Provide all API keys as command line arguments")
+        sys.exit(1)
 
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
     sq = Squarespace(shipstation, SquarespaceAPIKey)
@@ -833,4 +1081,3 @@ if __name__ == "__main__":
     shipstation.run()
     plants = sq.getPlantProducts()
     sq.updateAllPrices(plants)
-
