@@ -3,6 +3,7 @@ import requests
 import random
 import sys
 import math
+import re
 import json
 from datetime import datetime, timedelta
 
@@ -210,6 +211,134 @@ class ShipstationConnection:
                 return product
         print(f'Failed to fetch product {sku}: {response.text}')
         return None
+
+    def GetProductTitle(self, sku):
+        """
+        Get product title by SKU
+        
+        Args:
+            sku (str): The SKU to look up
+            
+        Returns:
+            str: The product title, or None if not found
+        """
+        product_details = self.get_product_details(sku)
+        if product_details:
+            return product_details.get('name', None)
+        return None
+
+    def UpdateProductInfo(self, sku, updates):
+        """
+        Update product information by SKU
+        
+        Args:
+            sku (str): The SKU of the product to update
+            updates (dict): Dictionary of fields to update
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # First get the product to find its ID
+        product_details = self.get_product_details(sku)
+        if not product_details:
+            print(f'Product with SKU {sku} not found')
+            return False
+        
+        # Try different possible ID field names
+        product_id = product_details.get('productId') or product_details.get('id')
+        if not product_id:
+            print(f'Product ID not found for SKU {sku}. Available fields: {list(product_details.keys())}')
+            return False
+        
+        # Create the complete product payload for update
+        # ShipStation requires the full product object for updates
+        updatePayload = {
+            'productId': product_id,
+            'sku': product_details.get('sku', sku),
+            'name': updates.get('name', product_details.get('name', '')),
+            'price': product_details.get('price', 0),
+            'defaultCost': product_details.get('defaultCost', 0),
+            'length': product_details.get('length', 0),
+            'width': product_details.get('width', 0),
+            'height': product_details.get('height', 0),
+            'weightOz': product_details.get('weightOz', 0),
+            'internalNotes': product_details.get('internalNotes', ''),
+            'fulfillmentSku': product_details.get('fulfillmentSku', ''),
+            'createDate': product_details.get('createDate', ''),
+            'modifyDate': product_details.get('modifyDate', ''),
+            'active': product_details.get('active', True),
+            'productCategory': product_details.get('productCategory', {}),
+            'productType': product_details.get('productType', {}),
+            'warehouseLocation': product_details.get('warehouseLocation', ''),
+            'defaultCarrierCode': product_details.get('defaultCarrierCode', ''),
+            'defaultServiceCode': product_details.get('defaultServiceCode', ''),
+            'defaultPackageCode': product_details.get('defaultPackageCode', ''),
+            'defaultIntlCarrierCode': product_details.get('defaultIntlCarrierCode', ''),
+            'defaultIntlServiceCode': product_details.get('defaultIntlServiceCode', ''),
+            'defaultIntlPackageCode': product_details.get('defaultIntlPackageCode', ''),
+            'defaultConfirmation': product_details.get('defaultConfirmation', ''),
+            'defaultIntlConfirmation': product_details.get('defaultIntlConfirmation', ''),
+            'customsDescription': product_details.get('customsDescription', ''),
+            'customsValue': product_details.get('customsValue', 0),
+            'customsTariffNo': product_details.get('customsTariffNo', ''),
+            'customsCountryCode': product_details.get('customsCountryCode', ''),
+            'noCustoms': product_details.get('noCustoms', False),
+            'tags': product_details.get('tags', [])
+        }
+        
+        # Update the product using PUT to specific product endpoint
+        url = f'{self.base_url}products/{product_id}'
+        response = requests.put(url, headers=self.headers, json=updatePayload)
+        
+        if response.status_code == 200:
+            print(f'Successfully updated product {sku}')
+            return True
+        else:
+            print(f'Failed to update product {sku}: {response.text}')
+            return False
+
+    def GetAllProducts(self):
+        """
+        Get all products from ShipStation
+        
+        Returns:
+            list: List of all products from ShipStation
+        """
+        print("\nFetching all products from ShipStation...")
+        url = f'{self.base_url}products'
+        allProducts = []
+        page = 1
+        pageSize = 500
+        
+        while True:
+            params = {
+                'pageSize': pageSize,
+                'page': page
+            }
+            
+            response = requests.get(url, headers=self.headers, params=params)
+            
+            if response.status_code != 200:
+                print(f'Failed to fetch products: {response.text}')
+                break
+                
+            data = response.json()
+            products = data.get('products', [])
+            
+            if not products:
+                break
+                
+            allProducts.extend(products)
+            print(f"Fetched page {page}: {len(products)} products")
+            
+            # Check if there are more pages
+            if len(products) < pageSize:
+                break
+                
+            page += 1
+        
+        print(f"Total ShipStation products fetched: {len(allProducts)}")
+        return allProducts
 
     def tag_order(self, order, tag):
         print(f"Adding tag '{tag}' to order {order['orderNumber']}")
@@ -900,10 +1029,118 @@ class ShipstationConnection:
         return "Done!"
 
 
+class ProductNaming:
+    def __init__(self):
+        self.productLocations = {}
+        self.sheetUrl = "https://docs.google.com/spreadsheets/d/1kOZ4AVJ0wIYdG1tKaAti60dxfGyAIG4Ol24m29jFgdQ/edit?usp=sharing"
+        self.sheetId = "1kOZ4AVJ0wIYdG1tKaAti60dxfGyAIG4Ol24m29jFgdQ"
+        
+        # Load data from Google Sheets
+        self.LoadProductLocations()
+    
+    def LoadProductLocations(self):
+        """
+        Column A: SKU
+        Column D: Tank #
+        """
+        try:
+            # Use Google Sheets API to get CSV export 
+            csvUrl = f"https://docs.google.com/spreadsheets/d/{self.sheetId}/export?format=csv"
+            
+            response = requests.get(csvUrl)
+            response.raise_for_status()
+            
+            # Parse CSV data
+            lines = response.text.strip().split('\n')
+            
+            # Skip header row and process data
+            for i, line in enumerate(lines[1:], start=2):
+                try:
+                    # Split CSV line 
+                    columns = self.ParseCsvLine(line)
+                    
+                    if len(columns) >= 4:  # Ensure we have at least 4 columns
+                        sku = columns[0].strip()  # Column A
+                        tankNumber = columns[3].strip()  # Column D
+                        
+                        # Process tank number
+                        if sku and tankNumber:
+                            # Extract numbers
+                            numbers = re.findall(r'\d+', tankNumber)
+                            
+                            if numbers:
+                                # Join numbers with commas if found
+                                processedTank = ", ".join(numbers)
+                            else:
+                                # Take first word if no numbers
+                                processedTank = tankNumber.split()[0]
+                            
+                            # Only add if tank number isn't empty
+                            if processedTank:
+                                self.productLocations[sku] = processedTank
+                            
+                except Exception as e:
+                    print(f"Error processing line {i}: {e}")
+                    continue
+            
+            print(f"Successfully loaded {len(self.productLocations)} product locations")
+            print(self.productLocations)
+            
+        except requests.RequestException as e:
+            print(f"Error accessing Google Sheets: {e}")
+        except Exception as e:
+            print(f"Error loading product locations: {e}")
+    
+    def ParseCsvLine(self, line):
+        """
+        Parse a CSV line, handling quoted fields that may contain commas
+        """
+        columns = []
+        currentColumn = ""
+        inQuotes = False
+        
+        for char in line:
+            if char == '"':
+                inQuotes = not inQuotes
+            elif char == ',' and not inQuotes:
+                columns.append(currentColumn)
+                currentColumn = ""
+            else:
+                currentColumn += char
+        
+        # Add the last column
+        columns.append(currentColumn)
+        
+        # Clean up quotes from columns
+        return [col.strip('"') for col in columns]
+    
+    def GetTankLocation(self, sku):
+        """
+        Get the tank location for a given SKU
+        
+        Args:
+            sku (str): The SKU to look up
+            
+        Returns:
+            str: The tank number/location, or None if not found
+        """
+        return self.productLocations.get(sku)
+    
+    def GetAllProductLocations(self):
+        """
+        Get all product locations
+        
+        Returns:
+            dict: Dictionary of SKU -> Tank # mappings
+        """
+        return self.productLocations.copy()
+
+
 class Squarespace:
-    def __init__(self, shipstation, apikey):
+    def __init__(self, shipstation, apikey, productNaming):
         self.shipstation = shipstation
         self.apiKey = apikey
+        self.productNaming = productNaming
         self.baseUrl = "https://api.squarespace.com/1.0/"
         self.headers = {
             "Authorization": f"Bearer {self.apiKey}",
@@ -1018,6 +1255,30 @@ class Squarespace:
 
         return price
 
+    def RoundToNearestDollar99(self, price):
+        """
+        Round price to nearest $X.99
+        Examples: $5.40 -> $4.99, $5.60 -> $5.99, $5.49 -> $4.99, $5.50 -> $5.99
+        
+        Args:
+            price (float): Original price
+            
+        Returns:
+            float: Price rounded to nearest $X.99
+        """
+        # Get the dollar amount
+        dollarAmount = int(price)
+        
+        # Get the cents portion
+        cents = price - dollarAmount
+        
+        # If cents are 50 or more, round up to next dollar + 0.99
+        # If cents are less than 50, round down to current dollar + 0.99
+        if cents >= 0.50:
+            return dollarAmount + 0.99
+        else:
+            return max(0.99, dollarAmount - 1 + 0.99) if dollarAmount > 0 else 0.99
+
     def updateAllPrices(self, products):
         print("\nUpdating product prices...")
         for productData in products:
@@ -1032,8 +1293,8 @@ class Squarespace:
                     updateUrl = f"{self.baseUrl}commerce/products/{product['id']}/variants/{variant['id']}"
                     
                     basePrice = self.determinePrice(product, variantIndex)
-                    basePrice = math.floor(basePrice) + 0.99
-                    salePrice = math.floor(basePrice * 0.75) + 0.99
+                    basePrice = self.RoundToNearestDollar99(basePrice)
+                    salePrice = self.RoundToNearestDollar99(basePrice * 0.75)
                     
                     priceData = {
                         "pricing": {
@@ -1051,6 +1312,68 @@ class Squarespace:
                     response = requests.post(updateUrl, headers=self.headers, json=priceData)
                     if response.status_code != 200:
                         print(f"Failed to update {productName} variant {variantIndex}: {response.text}")
+    
+    def UpdateShipStationProductNames(self, shipstationProducts):
+        """
+        Update product names in ShipStation with tank locations
+        
+        Args:
+            shipstationProducts (list): List of product data from ShipStation
+        """
+        print("\nUpdating ShipStation product names with tank locations...")
+        for product in shipstationProducts:
+            sku = product.get("sku", "")
+            currentName = product.get("name", "")
+            
+            if sku and currentName:
+                # Get tank location from ProductNaming
+                tankLocation = self.productNaming.GetTankLocation(sku)
+                if tankLocation:
+                    # Clean the product name and add tank info
+                    baseName = self.CleanProductName(currentName)
+                    newName = f"{baseName} [{tankLocation}]"
+                    
+                    # Only update if the name actually changed
+                    if newName != currentName:
+                        # Update in ShipStation
+                        success = self.shipstation.UpdateProductInfo(sku, {"name": newName})
+                        if success:
+                            print(f"Updated ShipStation product: '{currentName}' -> '{newName}'")
+    
+    def CleanProductName(self, productName):
+        """
+        Clean product name by removing content within brackets and parentheses
+        
+        Args:
+            productName (str): Original product name
+            
+        Returns:
+            str: Cleaned product name
+        """
+        cleanName = productName
+        
+        # Remove anything within brackets [content]
+        while '[' in cleanName and ']' in cleanName:
+            start = cleanName.find('[')
+            end = cleanName.find(']', start)
+            if start != -1 and end != -1:
+                cleanName = cleanName[:start] + cleanName[end+1:]
+            else:
+                break
+        
+        # Remove anything within parentheses (content)
+        while '(' in cleanName and ')' in cleanName:
+            start = cleanName.find('(')
+            end = cleanName.find(')', start)
+            if start != -1 and end != -1:
+                cleanName = cleanName[:start] + cleanName[end+1:]
+            else:
+                break
+        
+        # Clean up extra spaces
+        cleanName = ' '.join(cleanName.split())
+        
+        return cleanName.strip()
 
 
 if __name__ == "__main__":
@@ -1068,6 +1391,12 @@ if __name__ == "__main__":
     elif len(sys.argv) >= 7:
         print("Using command line arguments for API keys")
         _, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey, SquarespaceAPIKey = sys.argv[:7]
+        print("shipstationAPIKey:", shipstationAPIKey)
+        print("shipstaionAPISecret:", shipstaionAPISecret)
+        print("UPSAuthID:", UPSAuthID)
+        print("UPSAuthPass:", UPSAuthPass)
+        print("openWeatherAPIKey:", openWeatherAPIKey)
+        print("SquarespaceAPIKey:", SquarespaceAPIKey)
     else:
         print("No config file found and insufficient command line arguments provided.")
         print("Please either:")
@@ -1075,9 +1404,24 @@ if __name__ == "__main__":
         print("2. Provide all API keys as command line arguments")
         sys.exit(1)
 
+    # Initialize ProductNaming first to get all product locations
+    print("Loading product locations from Google Sheets...")
+    productNaming = ProductNaming()
+    
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
-    sq = Squarespace(shipstation, SquarespaceAPIKey)
+    sq = Squarespace(shipstation, SquarespaceAPIKey, productNaming)
 
+    # # Run ShipStation order processing
     shipstation.run()
+    
+    # # Get products from Squarespace (SKUs, Name, Price)
     plants = sq.getPlantProducts()
+    
+    # # Update prices to Squarespace
     sq.updateAllPrices(plants)
+    
+    # Get products from ShipStation (SKUs, Name)
+    shipstationProducts = shipstation.GetAllProducts()
+    
+    # Modify product names with tank location and update to ShipStation
+    sq.UpdateShipStationProductNames(shipstationProducts)
