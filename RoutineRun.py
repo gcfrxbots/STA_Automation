@@ -1383,7 +1383,7 @@ if __name__ == "__main__":
 
     # Initialize ProductNaming first to get all product locations
     print("Loading product locations from Google Sheets...")
-    #productNaming = ProductNaming()
+    productNaming = None
     
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
     sq = Squarespace(shipstation, SquarespaceAPIKey, productNaming)
