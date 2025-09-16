@@ -410,13 +410,12 @@ class ShipstationConnection:
         print(f"Found {self.ordersInQueue} orders awaiting shipment")
         return orders
 
-    def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, custom3, shipping_service=None, notes=None):
+    def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, shipping_service=None, notes=None):
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         
         isUSPS = bool(shipping_service and shipping_service.startswith("usps_"))
         carrier_code = "stamps_com" if isUSPS else "ups_walleted"
-        custom3 = "USPS & SMALL BOX" if shipping_service == "usps_ground_advantage" else ("USPS Priority" if shipping_service == "usps_priority_mail" else "Standard UPS")
         
         print(f"\nUpdating order {order_number}:")
         print(f"Carrier: {carrier_code}")
@@ -456,7 +455,6 @@ class ShipstationConnection:
                 "storeId": storeId,
                 "customField1": notes if notes else "",
                 "customField2": temp,
-                "customField3": custom3,
                 "source": source
             },
             "shipByDate": ship_by_date,
@@ -958,12 +956,6 @@ class ShipstationConnection:
                 tags.append(31803)
                 shipByDays -= 6
 
-            multipleItemCount = sum(1 for item in items if item['quantity'] > 1)
-            if multipleItemCount > 0:
-                multipleItemReminder = f"{multipleItemCount} item{'s' if multipleItemCount > 1 else ''} has multiple quantity"
-                print(multipleItemReminder)
-            else:
-                multipleItemReminder = ""
 
             success = self.update_order(
                 order_id=orderId,
@@ -980,7 +972,6 @@ class ShipstationConnection:
                 temp=temp,
                 source=order.get('advancedOptions', {}).get('source'),
                 shipByDays=shipByDays,
-                custom3=multipleItemReminder,
                 email=order['customerEmail'],
                 requestedShipping=order['requestedShippingService'],
                 shipping_service=selected_service,
