@@ -96,8 +96,8 @@ print(f"Base Speed Modifier: {BASE_SPEED_MODIFIER}")
 print(f"Temperature Adjustment: +{TEMPERATURE_ADJUSTMENT}")
 print(f"Final Speed Modifier: {SPEED_MODIFIER}")
 
-# Max transit days for shipping (base value, will be adjusted by temperature and day of week)
-MAX_TRANSIT_DAYS = 4
+# MAX_TRANSIT_DAYS disabled
+# MAX_TRANSIT_DAYS = 4
 
 # Order queue threshold for price increases
 ORDER_LIMIT = 25
@@ -105,8 +105,8 @@ ORDER_LIMIT = 25
 # Weight multiplier for price increases when order queue is high
 INCREASE_WEIGHT = 6
 
-# Small order threshold for USPS shipping
-SMALL_ORDER_THRESHOLD = 10
+# SMALL_ORDER_THRESHOLD disabled
+# SMALL_ORDER_THRESHOLD = 10
 
 # Upgrade percentages (base values, will be adjusted by speed modifier)
 THREE_DAY_UPGRADE_PERCENTAGE = 20  # Upgrade to 3 Day if cost is less than X% of order
@@ -141,6 +141,7 @@ def loadConfigFromFile():
         print(f"Error reading config file: {str(e)}")
         return None
 
+
 class ShipstationConnection:
     def __init__(self, shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey):
         self.api_key = shipstationAPIKey
@@ -150,7 +151,7 @@ class ShipstationConnection:
         self.openWeatherAPIKey = openWeatherAPIKey
         self.base_url = 'https://ssapi.shipstation.com/'
         self.headers = self._generate_headers()
-        self.shipping_service = "ups_ground_saver"
+        self.shipping_service = "usps_ground_advantage"
         self.nonliving = False
         self.expedite = False
         self.ordersInQueue = 0
@@ -341,15 +342,12 @@ class ShipstationConnection:
         return allProducts
 
     def tag_order(self, order, tag):
+        # tag_order disabled for nonliving and USPS
+        if tag not in ("expedite",):
+            return
         print(f"Adding tag '{tag}' to order {order['orderNumber']}")
         tags = {
-            "nonliving": "28635",
-            "expedite": "19055",
-            "replacement": "25911",
-            "impatient": "30832",
-            "monthly": "26005",
-            "late": "31803",
-            "USPS": "38738"
+            "expedite": "19055"
         }
         url = f'{self.base_url}orders/addtag'
         tag_data = {"orderId": order['orderId'], "tagId": tags[tag]}
@@ -425,8 +423,9 @@ class ShipstationConnection:
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         
-        carrier_code = "stamps_com" if shipping_service == "usps_ground_advantage" else "ups_walleted"
-        custom3 = "USPS & SMALL BOX" if shipping_service == "usps_ground_advantage" else "Standard UPS"
+        isUSPS = bool(shipping_service and shipping_service.startswith("usps_"))
+        carrier_code = "stamps_com" if isUSPS else "ups_walleted"
+        custom3 = "USPS & SMALL BOX" if shipping_service == "usps_ground_advantage" else ("USPS Priority" if shipping_service == "usps_priority_mail" else "Standard UPS")
         
         print(f"\nUpdating order {order_number}:")
         print(f"Carrier: {carrier_code}")
@@ -449,7 +448,8 @@ class ShipstationConnection:
                 "units": "inches",
                 "length": 8.0,
                 "width": 6.0,
-                "height": 4.0
+                "height": 4.0,
+                "packageCode": "package" if isUSPS else None
             }
         
         data = {
@@ -464,7 +464,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "package" if shipping_service == "usps_ground_advantage" else None,
+            "packageCode": "package" if isUSPS else None,
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
             "dimensions": dimensions,
@@ -698,6 +698,26 @@ class ShipstationConnection:
             return 60
 
     def determine_best_shipping(self, order):
+        # USPS only
+        requested = order.get('requestedShippingService') or ""
+        isPriority = ("Priority" in requested) or ("EXPEDITE" in requested)
+
+        # normalize dimensions
+        if not order.get('dimensions'):
+            order['dimensions'] = {}
+        order['dimensions']['packageCode'] = 'package'
+
+        # normalize weight units
+        if isinstance(order.get('weight'), dict):
+            order['weight']['units'] = 'pounds'
+
+        if isPriority:
+            self.expedite = True
+            self.tag_order(order, "expedite")
+            return "usps_priority_mail", "EXPEDITE", 60, -2
+        
+        self.tag_order(order, "USPS")
+        return "usps_ground_advantage", "", 60, -2
         origin_zip = "23236"
         destination_zip = order['shipTo']['postalCode']
         
@@ -750,57 +770,22 @@ class ShipstationConnection:
                 return "ups_2nd_day_air", "EXPEDITE", temperature_high, -10
         
         # Check for nonliving items (but respect customer-paid services)
-        if self.is_all_nonliving(order):
-            self.nonliving = True
-            self.tag_order(order, "nonliving")
-            
-            # Nonliving orders use USPS unless customer paid for UPS
-            if customerPaidForThreeDay or customerPaidForTwoDay:
-                print("Nonliving order but customer paid for UPS - using UPS service")
-                # Continue with UPS logic below
-            else:
-                print("Nonliving order - using USPS shipping")
-                self.tag_order(order, "USPS")
-                order['weight']['value'] = 0.25
-                order['weight']['units'] = 'pounds'
-                # Ensure dimensions exist before setting packageCode
-                if not order.get('dimensions'):
-                    order['dimensions'] = {}
-                order['dimensions']['packageCode'] = '130843'
-                return "usps_ground_advantage", "", temperature_high, -2
+        # nonliving logic removed
         
         # Check for small orders (but respect customer-paid services)
-        if float(order_total) < SMALL_ORDER_THRESHOLD:
-            if customerPaidForThreeDay or customerPaidForTwoDay:
-                print(f"Small order (${order_total}) but customer paid for UPS - using UPS service")
-                # Continue with UPS logic below
-            else:
-                print(f"Small order (${order_total}) - using USPS shipping")
-                self.tag_order(order, "USPS")
-                order['weight']['value'] = 0.25
-                order['weight']['units'] = 'pounds'
-                # Ensure dimensions exist before setting packageCode
-                if not order.get('dimensions'):
-                    order['dimensions'] = {}
-                order['dimensions']['packageCode'] = '130843'
-                return "usps_ground_advantage", "", temperature_high, -2
+        # small order threshold removed
 
         # Calculate max transit days based on temperature and day of week (IGNORING speed modifier)
-        max_days = MAX_TRANSIT_DAYS
+        # max transit days removed
         
         # Adjust for extreme temperatures
-        if temperature_high > 80 or temperature_high < 40:
-            max_days -= 1
-            print(f"Extreme temperature ({temperature_high}°F) - max transit {max_days} days")
+        # extreme temperature adjustments removed
         
         # Adjust for day of week (reduce max days on weekends)
-        if current_day >= 5:  # Friday, Saturday, Sunday
-            max_days -= 1
-            print(f"Weekend order - max transit {max_days} days")
+        # weekend adjustments removed
         
         # Ensure minimum of 2 days
-        max_days = max(2, max_days)
-        print(f"Final max transit days: {max_days}")
+        # final max days removed
 
         # Get shipping rates and transit times
         rates = self.get_shipping_rates(order)
@@ -965,12 +950,12 @@ class ShipstationConnection:
                     tags.remove(30806)
                     print("Removed replacement processing flag")
                 
-                # Only remove nonliving items if it's not already a nonliving order
-                if not self.nonliving:
-                    items = self.remove_nonliving_items(order)
-                    if not items:
-                        print("No items remain after removing nonliving items - skipping order")
-                        continue
+                # # Only remove nonliving items if it's not already a nonliving order
+                # if not self.nonliving:
+                #     items = self.remove_nonliving_items(order)
+                #     if not items:
+                #         print("No items remain after removing nonliving items - skipping order")
+                #         continue
 
                 self.cancel_order(orderId)
                 shipByDays = -5
@@ -978,14 +963,12 @@ class ShipstationConnection:
                 orderId = None
                 orderNumber = f"{orderNumber}-R"
                 orderDate = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S.%f000")
-                notes += " [REPLACEMENT - ADD 3 FREE STEMS]"
+                notes += " [REPLACEMENT]"
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
                 print("Late order!")
                 tags.append(31803)
                 shipByDays -= 6
-                if not self.nonliving:
-                    notes += " [ADD 3 FREE STEMS FOR DELAY]"
 
             multipleItemCount = sum(1 for item in items if item['quantity'] > 1)
             if multipleItemCount > 0:
@@ -1400,7 +1383,7 @@ if __name__ == "__main__":
 
     # Initialize ProductNaming first to get all product locations
     print("Loading product locations from Google Sheets...")
-    productNaming = ProductNaming()
+    #productNaming = ProductNaming()
     
     shipstation = ShipstationConnection(shipstationAPIKey, shipstaionAPISecret, UPSAuthID, UPSAuthPass, openWeatherAPIKey)
     sq = Squarespace(shipstation, SquarespaceAPIKey, productNaming)
@@ -1409,13 +1392,13 @@ if __name__ == "__main__":
     shipstation.run()
     
     # # Get products from Squarespace (SKUs, Name, Price)
-    plants = sq.getPlantProducts()
+   # plants = sq.getPlantProducts()
     
     # # Update prices to Squarespace
-    sq.updateAllPrices(plants)
+    #sq.updateAllPrices(plants)
     
     # Get products from ShipStation (SKUs, Name)
-    shipstationProducts = shipstation.GetAllProducts()
+    #shipstationProducts = shipstation.GetAllProducts()
     
     # Modify product names with tank location and update to ShipStation
-    sq.UpdateShipStationProductNames(shipstationProducts)
+    #sq.UpdateShipStationProductNames(shipstationProducts)
