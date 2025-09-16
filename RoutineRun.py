@@ -438,10 +438,10 @@ class ShipstationConnection:
         if shipping_service == "usps_ground_advantage":
             dimensions = {
                 "units": "inches",
-                "length": 6.0,
-                "width": 4.0,
+                "length": 8.0,
+                "width": 6.0,
                 "height": 4.0,
-                "packageCode": "package"
+                "packageCode": "Standard Box"
             }
         else:
             dimensions = {
@@ -449,8 +449,33 @@ class ShipstationConnection:
                 "length": 8.0,
                 "width": 6.0,
                 "height": 4.0,
-                "packageCode": "package" if isUSPS else None
+                "packageCode": "Standard Box" if isUSPS else None
             }
+        
+        # Build USPS packages using provided packageTypeId and fixed dims/weight
+        packages = None
+        if isUSPS:
+            packages = [
+                {
+                    "packageTypeId": "103469",
+                    "description": None,
+                    "weight": {
+                        "unit": "Ounces",
+                        "value": 8.00
+                    },
+                    "dimensions": {
+                        "unit": "Inches",
+                        "length": 8.00,
+                        "width": 6.00,
+                        "height": 4.00
+                    },
+                    "insuredValue": {
+                        "value": 0.00,
+                        "code": "USD"
+                    },
+                    "contentDescription": None
+                }
+            ]
         
         data = {
             "orderKey": order_key,
@@ -464,10 +489,11 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "package" if isUSPS else None,
+            "packageCode": None if isUSPS else ("Standard Box" if shipping_service and shipping_service.startswith("usps_") else None),
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
             "dimensions": dimensions,
+            "packages": packages,
             "advancedOptions": {
                 "storeId": storeId,
                 "customField1": notes if notes else "",
@@ -705,7 +731,11 @@ class ShipstationConnection:
         # normalize dimensions
         if not order.get('dimensions'):
             order['dimensions'] = {}
-        order['dimensions']['packageCode'] = 'package'
+        order['dimensions']['units'] = 'inches'
+        order['dimensions']['length'] = 8.0
+        order['dimensions']['width'] = 6.0
+        order['dimensions']['height'] = 4.0
+        order['dimensions']['packageCode'] = 'Standard Box'
 
         # normalize weight: force all orders to 8 oz
         if isinstance(order.get('weight'), dict):
