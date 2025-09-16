@@ -359,21 +359,12 @@ class ShipstationConnection:
         print(f"Getting shipping rates for {order['orderNumber']} to {order['shipTo']['city']}, {order['shipTo']['state']}")
         url = f'{self.base_url}shipments/getrates'
         
-        # Handle missing dimensions
-        if not order.get('dimensions'):
-            print("No dimensions found - using default dimensions")
-            dimensions = {
+        dimensions = {
                 "units": "inches",
-                "length": 8.0,
-                "width": 6.0,
-                "height": 4.0
-            }
-        else:
-            dimensions = {
-                "units": order['dimensions'].get('units', 'inches'),
-                "length": order['dimensions'].get('length', 8.0),
-                "width": order['dimensions'].get('width', 6.0),
-                "height": order['dimensions'].get('height', 4.0)
+                "length": 6.0,
+                "width": 4.0,
+                "height": 4.0,
+                "packageCode": "package"
             }
         
         data = {
