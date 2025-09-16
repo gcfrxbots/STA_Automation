@@ -456,7 +456,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "103469" if isUSPS else None,
+            "packageCode": "103469",
             "requestedShippingService": requestedShipping,
             "customereEmail": email,
             "dimensions": dimensions,
