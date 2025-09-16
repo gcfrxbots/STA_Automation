@@ -428,9 +428,10 @@ class ShipstationConnection:
         
         dimensions = {
             "units": "inches",
-            "length": 8.0,
-            "width": 6.0,
-            "height": 4.0
+            "length": 6.0,
+            "width": 4.0,
+            "height": 4.0,
+            "packageCode": "package"
         }
         
         # Use custom package by ID for USPS
@@ -683,27 +684,27 @@ class ShipstationConnection:
     def determine_best_shipping(self, order):
         # USPS only
         requested = order.get('requestedShippingService') or ""
-        isPriority = ("Priority" in requested) or ("EXPEDITE" in requested)
+        isExpedite = ("EXPEDITE" in requested) or ("Priority" in requested)
 
         # normalize dimensions
         if not order.get('dimensions'):
             order['dimensions'] = {}
         order['dimensions']['units'] = 'inches'
-        order['dimensions']['length'] = 8.0
-        order['dimensions']['width'] = 6.0
+        order['dimensions']['length'] = 6.0
+        order['dimensions']['width'] = 4.0
         order['dimensions']['height'] = 4.0
+        order['dimensions']['packageCode'] = 'package'
 
         # normalize weight: force all orders to 8 oz
         if isinstance(order.get('weight'), dict):
             order['weight']['units'] = 'ounces'
             order['weight']['value'] = 8
 
-        if isPriority:
+        if isExpedite:
             self.expedite = True
             self.tag_order(order, "expedite")
-            return "usps_priority_mail", "EXPEDITE", 60, -10
-        
-        self.tag_order(order, "USPS")
+            return "usps_ground_advantage", "", 60, -2
+
         return "usps_ground_advantage", "", 60, -2
         origin_zip = "23236"
         destination_zip = order['shipTo']['postalCode']
