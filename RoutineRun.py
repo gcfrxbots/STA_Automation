@@ -456,9 +456,8 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "103469",
             "requestedShippingService": requestedShipping,
-            "customereEmail": email,
+            "customerEmail": email,
             "dimensions": dimensions,
             # no packages array, rely on packageCode ID
             "advancedOptions": {
@@ -711,7 +710,7 @@ class ShipstationConnection:
         if isPriority:
             self.expedite = True
             self.tag_order(order, "expedite")
-            return "usps_priority_mail", "EXPEDITE", 60, -2
+            return "usps_priority_mail", "EXPEDITE", 60, -10
         
         self.tag_order(order, "USPS")
         return "usps_ground_advantage", "", 60, -2
