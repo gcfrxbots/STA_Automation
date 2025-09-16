@@ -703,7 +703,7 @@ class ShipstationConnection:
         if isExpedite:
             self.expedite = True
             self.tag_order(order, "expedite")
-            return "usps_ground_advantage", "", 60, -2
+            return "usps_ground_advantage", "", 60, -5
 
         return "usps_ground_advantage", "", 60, -2
         origin_zip = "23236"
