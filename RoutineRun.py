@@ -707,9 +707,10 @@ class ShipstationConnection:
             order['dimensions'] = {}
         order['dimensions']['packageCode'] = 'package'
 
-        # normalize weight units
+        # normalize weight: force all orders to 8 oz
         if isinstance(order.get('weight'), dict):
-            order['weight']['units'] = 'pounds'
+            order['weight']['units'] = 'ounces'
+            order['weight']['value'] = 8
 
         if isPriority:
             self.expedite = True
