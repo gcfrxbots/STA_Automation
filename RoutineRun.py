@@ -447,6 +447,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
+            "packageCode": "package",
             "requestedShippingService": requestedShipping,
             "customerEmail": email,
             "dimensions": dimensions,
