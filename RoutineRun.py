@@ -427,8 +427,8 @@ class ShipstationConnection:
         
         dimensions = {
             "units": "inches",
-            "length": 6.0,
-            "width": 4.0,
+            "length": 8.0,
+            "width": 6.0,
             "height": 4.0,
             "packageCode": "package"
         }
