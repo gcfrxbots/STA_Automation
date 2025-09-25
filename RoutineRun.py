@@ -414,8 +414,9 @@ class ShipstationConnection:
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         
-        isUSPS = bool(shipping_service and shipping_service.startswith("usps_"))
-        carrier_code = "stamps_com" if isUSPS else "ups_walleted"
+        # Force USPS carrier for all shipments
+        isUSPS = True
+        carrier_code = "stamps_com"
         
         print(f"\nUpdating order {order_number}:")
         print(f"Carrier: {carrier_code}")
