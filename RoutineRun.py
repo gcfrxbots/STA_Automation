@@ -435,6 +435,10 @@ class ShipstationConnection:
         
         # Use custom package by ID for USPS
         
+        # Add Custom Field 3 if plant tag present
+        tags_list = tags or []
+        customField3Value = "CONTAINS PLANTS" if (43020 in tags_list) else None
+
         data = {
             "orderKey": order_key,
             "orderNumber": order_number,
@@ -456,6 +460,7 @@ class ShipstationConnection:
                 "storeId": storeId,
                 "customField1": notes if notes else "",
                 "customField2": temp,
+                **({"customField3": customField3Value} if customField3Value else {}),
                 "source": source
             },
             "shipByDate": ship_by_date,
@@ -684,6 +689,8 @@ class ShipstationConnection:
         # USPS only
         requested = order.get('requestedShippingService') or ""
         isExpedite = ("EXPEDITE" in requested) or ("Priority" in requested)
+        tags = order.get('tagIds', []) or []
+        hasPlants = 43020 in tags
 
         # normalize dimensions
         if not order.get('dimensions'):
@@ -698,6 +705,10 @@ class ShipstationConnection:
         if isinstance(order.get('weight'), dict):
             order['weight']['units'] = 'ounces'
             order['weight']['value'] = 8
+
+        # Plant tag forces USPS Priority and -3 days
+        if hasPlants:
+            return "usps_priority_mail", "", 60, -3
 
         if isExpedite:
             self.expedite = True
