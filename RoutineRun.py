@@ -413,7 +413,6 @@ class ShipstationConnection:
     def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, shipping_service=None, notes=None):
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
-        print(ship_by_date)
         isUSPS = bool(shipping_service and shipping_service.startswith("usps_"))
         carrier_code = "stamps_com" if isUSPS else "ups_walleted"
         
@@ -714,10 +713,9 @@ class ShipstationConnection:
             print("Order is expedited!")
             self.expedite = True
             self.tag_order(order, "expedite")
-            return "usps_ground_advantage", "", 60, -5
+            return "usps_ground_advantage", "", 60, -7
 
-        print("Order is not expedited.")
-        return "usps_ground_advantage", "", 60, -2
+        return "usps_ground_advantage", "", 60, -1
 
         ## OLD CODE FOR PLANT SHIPPING
 
