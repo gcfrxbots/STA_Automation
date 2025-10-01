@@ -690,6 +690,7 @@ class ShipstationConnection:
         isExpedite = ("EXPEDITE" in requested) or ("Priority" in requested)
         tags = order.get('tagIds', []) or []
         hasPlants = 43020 in tags
+        isImpatient = 30832 in tags
 
         # normalize dimensions
         if not order.get('dimensions'):
@@ -708,6 +709,10 @@ class ShipstationConnection:
         # Plant tag forces USPS Priority and -3 days
         if hasPlants:
             return "usps_priority_mail", "", 60, -3
+
+        # Impatient tag advances ship by date by 4 days
+        if isImpatient:
+            return "usps_ground_advantage", "", 60, -4
 
         if isExpedite:
             print("Order is expedited!")
