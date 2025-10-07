@@ -718,7 +718,7 @@ class ShipstationConnection:
             print("Order is expedited!")
             self.expedite = True
             self.tag_order(order, "expedite")
-            return "usps_ground_advantage", "", 60, -7
+            return "usps_priority_mail", "", 60, -7
 
         return "usps_ground_advantage", "", 60, -1
 
