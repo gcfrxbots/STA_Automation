@@ -969,10 +969,10 @@ class ShipstationConnection:
                 orderDate = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S.%f000")
                 notes += " [REPLACEMENT]"
 
-            if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) < datetime.now():
+            if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=4) < datetime.now():
                 print("Late order!")
                 tags.append(31803)
-                shipByDays -= 6
+                shipByDays -= 1
 
             print("Ship by days: ", shipByDays)
             success = self.update_order(
