@@ -918,7 +918,8 @@ class ShipstationConnection:
                 tags = []
             
             # Check for 3D printed items and tag if found
-            if self.has3DPrintedItems(order):
+            has3DPrint = self.has3DPrintedItems(order)
+            if has3DPrint:
                 if 43864 not in tags:
                     tags.append(43864)
                     print("Order contains 3D printed items - adding tag 43864")
@@ -934,6 +935,11 @@ class ShipstationConnection:
             orderDate = order['orderDate']
 
             selected_service, notes, temp, shipByDays = self.determine_best_shipping(order)
+            
+            # Add +1 day to ship by days for 3D printed orders
+            if has3DPrint:
+                shipByDays += 1
+                print(f"3D printed order - adding +1 day to ship by days: {shipByDays}")
 
             if selected_service is None:
                 print(f"Using default service: {self.shipping_service}")
