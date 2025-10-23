@@ -475,55 +475,33 @@ class ShipstationConnection:
         order_id = response.json().get('orderId')
         return True, order_id
 
-    def is_all_nonliving(self, order):
-        if len(order['orderNumber']) > 16 and order['orderNumber'].isupper():
-            print("PayPal order detected - not marking as nonliving")
-            return False
-
-        print(f"Checking if order {order['orderNumber']} is nonliving...")
-        nonliving_items = 0
-        total_items_with_sku = 0
+    def has3DPrintedItems(self, order):
+        print(f"Checking if order {order['orderNumber']} contains 3D Printed Items...")
         
         for item in order['items']:
-            print(f"Checking item: {item.get('name', 'Unknown')} (SKU: {item.get('sku', 'No SKU')})")
             if item['sku']:
-                total_items_with_sku += 1
-                product_details = self.get_product_details(item['sku'])
-                if not product_details:
-                    print(f"Could not fetch details for SKU {item['sku']} - assuming not nonliving")
-                    return False
+                productDetails = self.get_product_details(item['sku'])
+                if not productDetails:
+                    print(f"Could not fetch details for SKU {item['sku']}")
+                    continue
                 
-                print(f"Product details for {item['sku']}: {product_details.get('name', 'Unknown')}")
-                categories = product_details.get('productCategory', [])
+                print(f"Product details for {item['sku']}: {productDetails.get('name', 'Unknown')}")
+                categories = productDetails.get('productCategory', [])
                 print(f"Categories: {categories}")
                 
                 if isinstance(categories, dict):
-                    if "Nonliving" in categories.values():
-                        nonliving_items += 1
-                        print(f"Item {item['sku']} is nonliving")
-                    else:
-                        print(f"Categories dict does not contain 'Nonliving' - values: {categories.values()}")
-                        return False
+                    if "3D Print" in categories.values():
+                        print(f"Item {item['sku']} is 3D printed")
+                        return True
                 elif isinstance(categories, list):
-                    if "Nonliving" in categories:
-                        nonliving_items += 1
-                        print(f"Item {item['sku']} is nonliving")
-                    else:
-                        print(f"Categories list does not contain 'Nonliving' - list: {categories}")
-                        return False
-                else:
-                    print(f"Categories is neither dict nor list: {type(categories)}")
-                    return False
+                    if "3D Print" in categories:
+                        print(f"Item {item['sku']} is 3D printed")
+                        return True
             else:
                 print(f"Skipping item without SKU: {item.get('name', 'Unknown')}")
-
-        # Only mark as nonliving if all items with SKUs are nonliving
-        if total_items_with_sku > 0 and nonliving_items == total_items_with_sku:
-            print(f"Order contains only nonliving items ({nonliving_items}/{total_items_with_sku} items with SKUs)")
-            return True
-        else:
-            print(f"Order is not all nonliving ({nonliving_items}/{total_items_with_sku} items with SKUs are nonliving)")
-            return False
+        
+        print("No 3D printed items found in order")
+        return False
 
     def remove_nonliving_items(self, order):
         print("Removing nonliving items from order...")
@@ -938,6 +916,17 @@ class ShipstationConnection:
             tags = order.get('tagIds', [])
             if not tags:
                 tags = []
+            
+            # Check for 3D printed items and tag if found
+            if self.has3DPrintedItems(order):
+                if 43864 not in tags:
+                    tags.append(43864)
+                    print("Order contains 3D printed items - adding tag 43864")
+                else:
+                    print("Order already tagged with 3D print tag")
+            else:
+                print("Order does not contain 3D printed items")
+            
             items = order['items']
             orderKey = order['orderKey']
             orderId = order['orderId']
