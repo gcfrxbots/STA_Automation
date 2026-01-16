@@ -665,10 +665,23 @@ class ShipstationConnection:
     def determine_best_shipping(self, order):
         # USPS only
         requested = order.get('requestedShippingService') or ""
-        isExpedite = ("EXPEDITE" in requested) or ("Priority" in requested)
         tags = order.get('tagIds', []) or []
         hasPlants = 43020 in tags
         isImpatient = 30832 in tags
+        
+        # Check if any item has SKU "EXPEDITE"
+        hasExpediteSku = False
+        for item in order.get('items', []):
+            if item.get('sku') == "EXPEDITE":
+                hasExpediteSku = True
+                print("Order contains item with SKU EXPEDITE")
+                break
+        
+        # Check if requested service has "EXPEDITE" in it
+        requestedHasExpedite = "EXPEDITE" in requested
+        
+        # Check if requested service is USPS Priority
+        requestedIsPriority = "Priority" in requested
 
         # normalize dimensions
         if not order.get('dimensions'):
@@ -692,13 +705,32 @@ class ShipstationConnection:
         if isImpatient:
             return "usps_ground_advantage", "", 60, -4
 
-        if isExpedite:
+        # Determine if expedite logic should be applied
+        shouldApplyExpedite = requestedHasExpedite or hasExpediteSku
+        
+        if shouldApplyExpedite:
             print("Order is expedited!")
             self.expedite = True
             self.tag_order(order, "expedite")
-            return "usps_priority_mail", "", 60, -7
+            shipByDays = -7
+        else:
+            shipByDays = -1
 
-        return "usps_ground_advantage", "", 60, -1
+        # Shipping service selection logic:
+        # 1. If EXPEDITE in requested service → USPS Priority
+        # 2. Otherwise, if Priority in requested service → USPS Priority
+        # 3. Otherwise (Standard/Ground) → USPS Ground Advantage
+        
+        if requestedHasExpedite:
+            print("Requested service has EXPEDITE - using USPS Priority")
+            return "usps_priority_mail", "", 60, shipByDays
+
+        if requestedIsPriority:
+            print("Order requested USPS Priority - using USPS Priority")
+            return "usps_priority_mail", "", 60, shipByDays
+
+        # Default: USPS Ground Advantage (Standard/Ground orders)
+        return "usps_ground_advantage", "", 60, shipByDays
 
         ## OLD CODE FOR PLANT SHIPPING
 
@@ -968,6 +1000,13 @@ class ShipstationConnection:
                 print("Late order!")
                 tags.append(31803)
                 shipByDays -= 1
+
+            if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) <= datetime.now():
+                if 47018 not in tags:
+                    tags.append(47018)
+                    print("Order is 6 days or older - adding tag 47018")
+                else:
+                    print("Order already tagged with 6+ day tag 47018")
 
             print("Ship by days: ", shipByDays)
             success = self.update_order(
