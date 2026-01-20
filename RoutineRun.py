@@ -1007,6 +1007,9 @@ class ShipstationConnection:
                     print("Order is 6 days or older - adding tag 47018")
                 else:
                     print("Order already tagged with 6+ day tag 47018")
+                
+                # SHIP ASAP
+                shipByDays = -5
 
             print("Ship by days: ", shipByDays)
             success = self.update_order(
