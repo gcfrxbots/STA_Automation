@@ -410,7 +410,7 @@ class ShipstationConnection:
         print(f"Found {self.ordersInQueue} orders awaiting shipment")
         return orders
 
-    def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, shipping_service=None, notes=None):
+    def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, shipping_service=None, notes=None, warehouse_id=None):
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         isUSPS = bool(shipping_service and shipping_service.startswith("usps_"))
@@ -421,6 +421,8 @@ class ShipstationConnection:
         print(f"Service: {shipping_service}")
         print(f"Weight: {weight['value']} {weight['units']}")
         print(f"Ship by: {ship_by_date}")
+        if warehouse_id is not None:
+            print(f"Warehouse: {warehouse_id} (SwiftPrint3D)")
         if notes:
             print(f"Notes: {notes}")
         
@@ -460,7 +462,8 @@ class ShipstationConnection:
                 "customField1": notes if notes else "",
                 "customField2": temp,
                 **({"customField3": customField3Value} if customField3Value else {}),
-                "source": source
+                "source": source,
+                **({"warehouseId": warehouse_id} if warehouse_id is not None else {}),
             },
             "shipByDate": ship_by_date,
         }
@@ -502,6 +505,55 @@ class ShipstationConnection:
         
         print("No 3D printed items found in order")
         return False
+
+    def _item_is_3d_print(self, item):
+        """Return True if this item has a SKU and is in the 3D Print category."""
+        sku = item.get('sku')
+        if not sku:
+            return False
+        product_details = self.get_product_details(sku)
+        if not product_details:
+            return False
+        categories = product_details.get('productCategory', [])
+        if isinstance(categories, dict):
+            return "3D Print" in categories.values()
+        if isinstance(categories, list):
+            return "3D Print" in categories
+        return False
+
+    def is_order_entirely_3d_print(self, order):
+        """Return True if order has at least one item and every item (with SKU) is in the 3D Print category."""
+        items = order.get('items') or []
+        if not items:
+            return False
+        for item in items:
+            if not self._item_is_3d_print(item):
+                return False
+        return True
+
+    def _order_all_skus_hexalink(self, order):
+        """Return True if every item has a SKU containing 'HEXALINK' (case-insensitive)."""
+        items = order.get('items') or []
+        if not items:
+            return False
+        for item in items:
+            sku = (item.get('sku') or '').upper()
+            if "HEXALINK" not in sku:
+                return False
+        return True
+
+    def assign_order_to_user(self, order_id, user_id):
+        """Assign an order to a user via ShipStation API."""
+        if not order_id:
+            return False
+        url = f'{self.base_url}orders/assignuser'
+        payload = {"orderIds": [order_id], "userId": user_id}
+        response = requests.post(url, headers=self.headers, json=payload)
+        if response.status_code != 200:
+            print(f'Failed to assign order {order_id} to user: {response.text}')
+            return False
+        print(f"Assigned order {order_id} to user {user_id}")
+        return True
 
     def remove_nonliving_items(self, order):
         print("Removing nonliving items from order...")
@@ -546,6 +598,16 @@ class ShipstationConnection:
 
         if payment_date < order_date:
             print(f"Order {order['orderNumber']} payment date before order date - marking as replacement")
+            return True
+        return False
+
+    def _is_reship_or_replacement_order(self, order, tags):
+        """True if order is already a replacement (-R) or reship: apply replacement behavior without cancel/create."""
+        tag_list = tags if tags is not None else order.get('tagIds') or []
+        if 25911 in tag_list or 26005 in tag_list:
+            return True
+        order_number = (order.get('orderNumber') or '').strip()
+        if order_number.endswith('-R'):
             return True
         return False
 
@@ -982,12 +1044,6 @@ class ShipstationConnection:
                 if 30806 in tags:
                     tags.remove(30806)
                     print("Removed replacement processing flag")
-                # # Only remove nonliving items if it's not already a nonliving order
-                # if not self.nonliving:
-                #     items = self.remove_nonliving_items(order)
-                #     if not items:
-                #         print("No items remain after removing nonliving items - skipping order")
-                #         continue
                 self.cancel_order(orderId)
                 shipByDays = -5
                 orderKey = None
@@ -995,6 +1051,12 @@ class ShipstationConnection:
                 orderNumber = f"{orderNumber}-R"
                 orderDate = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S.%f000")
                 notes += " [REPLACEMENT]"
+            elif self._is_reship_or_replacement_order(order, tags):
+                # Already a replacement (-R) or reshipped order: apply same replacement behavior without cancel/create
+                shipByDays = -5
+                if " [REPLACEMENT]" not in notes:
+                    notes += " [REPLACEMENT]"
+                print("Order is reship/replacement - applying replacement behavior (ship by -5, [REPLACEMENT])")
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=4) < datetime.now():
                 print("Late order!")
@@ -1011,8 +1073,30 @@ class ShipstationConnection:
                 # SHIP ASAP
                 shipByDays = -5
 
+            # User assignment and warehouse:
+            # - Swiftprint orders: 100% 3D print AND all SKUs contain 'HEXALINK'
+            #   -> Swiftprint user + Swiftprint tag + Swiftprint warehouse
+            # - All other orders -> standard user, default warehouse
+            USER_ID_SWIFTPRINT = "ed89bcc1-63d1-4e96-a117-3e0d9c9457c0"
+            USER_ID_HAS_NON_3D = "c823b15b-1a0b-4569-9d73-a0082ee5ad7f"
+            TAG_ID_SWIFTPRINT = 47785
+            WAREHOUSE_ID_SWIFTPRINT = 550283
+            entirely_3d = self.is_order_entirely_3d_print(order)
+            all_hexalink = self._order_all_skus_hexalink(order)
+
+            if entirely_3d and all_hexalink:
+                assignee_user_id = USER_ID_SWIFTPRINT
+                warehouse_id = WAREHOUSE_ID_SWIFTPRINT
+                if TAG_ID_SWIFTPRINT not in tags:
+                    tags.append(TAG_ID_SWIFTPRINT)
+                    print("Order is Swiftprint: 100% 3D print and all SKUs contain HEXALINK - adding Swiftprint tag, user, and warehouse")
+            else:
+                assignee_user_id = USER_ID_HAS_NON_3D
+                warehouse_id = None
+                print("Order does not meet Swiftprint criteria - assigning to standard user")
+
             print("Ship by days: ", shipByDays)
-            success = self.update_order(
+            result = self.update_order(
                 order_id=orderId,
                 order_key=orderKey,
                 order_number=orderNumber,
@@ -1030,10 +1114,13 @@ class ShipstationConnection:
                 email=order['customerEmail'],
                 requestedShipping=order['requestedShippingService'],
                 shipping_service=selected_service,
-                notes=notes
+                notes=notes,
+                warehouse_id=warehouse_id
             )
 
-            if success:
+            if result:
+                _, updated_order_id = result
+                self.assign_order_to_user(updated_order_id, assignee_user_id)
                 print(f"\nSuccessfully processed order {orderNumber}")
             else:
                 print(f"\nFailed to process order {orderNumber}")
