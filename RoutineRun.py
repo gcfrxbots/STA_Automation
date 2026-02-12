@@ -19,14 +19,18 @@ def getLocalTemperatureAdjustment():
         try:
             with open('config.json') as configFile:
                 config = json.loads(configFile.read())
-        except:
-            print("Could not load config.json for temperature check - using default SPEED_MODIFIER")
-            return 3
+        except FileNotFoundError:
+            # config.json doesn't exist - likely running in Jenkins with args
+            # Return 0 (no adjustment) instead of error
+            return 0
+        except Exception as e:
+            print(f"Could not load config.json for temperature check: {e} - skipping temperature adjustment")
+            return 0
         
         apiKey = config.get('openWeatherAPIKey')
         if not apiKey:
-            print("No OpenWeather API key found - using default SPEED_MODIFIER")
-            return 3
+            print("No OpenWeather API key found in config.json - skipping temperature adjustment")
+            return 0
         
         localZip = "23236"
         baseUrl = "http://api.openweathermap.org/data/2.5/forecast"
@@ -37,11 +41,11 @@ def getLocalTemperatureAdjustment():
             'appid': apiKey
         }
 
-        response = requests.get(baseUrl, params=params)
+        response = requests.get(baseUrl, params=params, timeout=10)
         
         if response.status_code != 200:
-            print(f"Failed to get weather data: {response.text} - using default SPEED_MODIFIER")
-            return 3
+            print(f"Failed to get weather data: HTTP {response.status_code} - {response.text[:200]} - skipping temperature adjustment")
+            return 0
 
         forecastData = response.json()
         temperatures = []
@@ -74,8 +78,8 @@ def getLocalTemperatureAdjustment():
         return adjustment
         
     except Exception as e:
-        print(f"Error getting temperature adjustment: {str(e)} - using default SPEED_MODIFIER")
-        return 3
+        print(f"Error getting temperature adjustment: {str(e)} - skipping temperature adjustment")
+        return 0
 
 # =============================================================================
 # CONFIGURATION SETTINGS
