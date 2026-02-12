@@ -698,11 +698,14 @@ class ShipstationConnection:
         return True
 
     def get_temperature_high(self, zip_code):
+        print(f"[DEBUG] get_temperature_high called for ZIP: {zip_code}")
         try:
-            print(f"Checking temperature for ZIP: {zip_code}")
+            print(f"[DEBUG] Checking temperature for ZIP: {zip_code}")
             api_key = self.openWeatherAPIKey
+            print(f"[DEBUG] API key present: {bool(api_key)}, length: {len(api_key) if api_key else 0}")
             if not api_key:
-                print("OpenWeather API key is missing (openWeatherAPIKey not set).")
+                print("[DEBUG] OpenWeather API key is missing (openWeatherAPIKey not set).")
+                print("[DEBUG] Returning 60 due to missing API key")
                 return 60
 
             # Use HTTPS for OpenWeather
@@ -710,7 +713,7 @@ class ShipstationConnection:
             
             if "-" in zip_code:
                 zip_code = zip_code.split("-")[0]
-                print(f"Using ZIP code: {zip_code}")
+                print(f"[DEBUG] Using ZIP code: {zip_code}")
                 
             params = {
                 'zip': f'{zip_code},US',
@@ -718,39 +721,57 @@ class ShipstationConnection:
                 'appid': api_key
             }
 
-            print(f"Requesting weather from {base_url} with params: {params}")
+            print(f"[DEBUG] Requesting weather from {base_url}")
+            print(f"[DEBUG] Request params: zip={params['zip']}, units={params['units']}, appid={'*' * (len(api_key)-4) + api_key[-4:] if len(api_key) > 4 else '***'}")
             response = requests.get(base_url, params=params, timeout=15)
+            print(f"[DEBUG] Response status code: {response.status_code}")
+            print(f"[DEBUG] Response headers: {dict(response.headers)}")
 
             if response.status_code != 200:
-                print(f"Failed to get weather data: HTTP {response.status_code} - {response.text}")
+                print(f"[DEBUG] Failed to get weather data: HTTP {response.status_code}")
+                print(f"[DEBUG] Response text: {response.text[:500]}")
                 return None
 
             try:
                 forecast_data = response.json()
+                print(f"[DEBUG] Successfully parsed JSON response")
+                print(f"[DEBUG] Response keys: {list(forecast_data.keys())}")
             except Exception as e:
-                print(f"Failed to parse weather JSON response: {e}")
-                print(f"Raw response text: {response.text[:500]}")
+                print(f"[DEBUG] Failed to parse weather JSON response: {e}")
+                print(f"[DEBUG] Raw response text (first 500 chars): {response.text[:500]}")
                 return None
 
             high_temperatures = []
 
             forecast_list = forecast_data.get('list', [])
+            print(f"[DEBUG] Forecast list length: {len(forecast_list)}")
             if not forecast_list:
-                print("Weather response JSON has no 'list' entries.")
+                print("[DEBUG] Weather response JSON has no 'list' entries.")
+                print(f"[DEBUG] Full response structure: {json.dumps(forecast_data, indent=2)[:1000]}")
                 return None
 
-            for entry in forecast_list:
+            for i, entry in enumerate(forecast_list):
                 try:
                     high_temp = entry['main']['temp_max']
                     high_temperatures.append(high_temp)
+                    print(f"[DEBUG] Entry {i}: temp_max = {high_temp}°F")
                 except KeyError as e:
-                    print(f"Missing expected key in forecast entry: {e} - entry: {entry}")
+                    print(f"[DEBUG] Missing expected key in forecast entry {i}: {e}")
+                    print(f"[DEBUG] Entry keys: {list(entry.keys())}")
+                    print(f"[DEBUG] Entry data: {entry}")
+
+            if not high_temperatures:
+                print("[DEBUG] No temperature values extracted from forecast entries")
+                return None
 
             average_high = round(sum(high_temperatures) / len(high_temperatures))
-            print(f"Average high temperature: {average_high}°F")
+            print(f"[DEBUG] Calculated average high temperature: {average_high}°F (from {len(high_temperatures)} entries)")
             return average_high
         except Exception as e:  # This is prone to breaking, so if all else fails just return 60
-            print(f"Unhandled error getting temperature high for ZIP {zip_code}: {e}")
+            print(f"[DEBUG] Unhandled error getting temperature high for ZIP {zip_code}: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+            print(f"[DEBUG] Returning 60 due to exception")
             return 60
 
     def determine_best_shipping(self, order):
@@ -788,13 +809,23 @@ class ShipstationConnection:
             order['weight']['units'] = 'ounces'
             order['weight']['value'] = 8
 
+        # Get temperature for destination (needed for all return paths)
+        destination_zip = order['shipTo']['postalCode']
+        print(f"[DEBUG] Getting temperature for destination ZIP: {destination_zip}")
+        temperature_high = self.get_temperature_high(destination_zip)
+        if temperature_high is None:
+            temperature_high = 60
+            print(f"[DEBUG] Temperature API returned None, using default: {temperature_high}°F")
+        else:
+            print(f"[DEBUG] Temperature at destination: {temperature_high}°F")
+
         # Plant tag forces USPS Priority and -3 days
         if hasPlants:
-            return "usps_priority_mail", "", 60, -3
+            return "usps_priority_mail", "", temperature_high, -3
 
         # Impatient tag advances ship by date by 4 days
         if isImpatient:
-            return "usps_ground_advantage", "", 60, -4
+            return "usps_ground_advantage", "", temperature_high, -4
 
         # Determine if expedite logic should be applied
         shouldApplyExpedite = requestedHasExpedite or hasExpediteSku
@@ -814,26 +845,16 @@ class ShipstationConnection:
         
         if requestedHasExpedite:
             print("Requested service has EXPEDITE - using USPS Priority")
-            return "usps_priority_mail", "", 60, shipByDays
+            return "usps_priority_mail", "", temperature_high, shipByDays
 
         if requestedIsPriority:
             print("Order requested USPS Priority - using USPS Priority")
-            return "usps_priority_mail", "", 60, shipByDays
+            return "usps_priority_mail", "", temperature_high, shipByDays
 
         # Default: USPS Ground Advantage (Standard/Ground orders)
-        return "usps_ground_advantage", "", 60, shipByDays
+        return "usps_ground_advantage", "", temperature_high, shipByDays
 
-        ## OLD CODE FOR PLANT SHIPPING
-
-        # origin_zip = "23236"
-        # destination_zip = order['shipTo']['postalCode']
-        
-        # temperature_high = self.get_temperature_high(destination_zip)
-        # if temperature_high is None:
-        #     temperature_high = 60
-        #     print(f"Using default temperature: {temperature_high}°F")
-        # else:
-        #     print(f"Temperature at destination: {temperature_high}°F")
+        ## OLD CODE FOR PLANT SHIPPING (commented out - now using temperature for all orders)
         
         # order_total = order['orderTotal']
         # current_day = datetime.now().weekday()
