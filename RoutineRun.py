@@ -524,9 +524,11 @@ class ShipstationConnection:
     def is_order_entirely_3d_print(self, order):
         """Return True if order has at least one item and every item (with SKU) is in the 3D Print category."""
         items = order.get('items') or []
-        if not items:
+        # Only consider items that actually have a SKU (ignore discounts/blank lines)
+        sku_items = [item for item in items if item.get('sku')]
+        if not sku_items:
             return False
-        for item in items:
+        for item in sku_items:
             if not self._item_is_3d_print(item):
                 return False
         return True
@@ -534,10 +536,12 @@ class ShipstationConnection:
     def _order_all_skus_hexalink(self, order):
         """Return True if every item has a SKU containing 'HEXALINK' (case-insensitive)."""
         items = order.get('items') or []
-        if not items:
+        # Only consider items that actually have a SKU
+        sku_items = [item for item in items if item.get('sku')]
+        if not sku_items:
             return False
-        for item in items:
-            sku = (item.get('sku') or '').upper()
+        for item in sku_items:
+            sku = item.get('sku', '').upper()
             if "HEXALINK" not in sku:
                 return False
         return True
