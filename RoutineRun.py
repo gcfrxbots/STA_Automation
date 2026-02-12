@@ -697,7 +697,12 @@ class ShipstationConnection:
         try:
             print(f"Checking temperature for ZIP: {zip_code}")
             api_key = self.openWeatherAPIKey
-            base_url = "http://api.openweathermap.org/data/2.5/forecast"
+            if not api_key:
+                print("OpenWeather API key is missing (openWeatherAPIKey not set).")
+                return 60
+
+            # Use HTTPS for OpenWeather
+            base_url = "https://api.openweathermap.org/data/2.5/forecast"
             
             if "-" in zip_code:
                 zip_code = zip_code.split("-")[0]
@@ -709,23 +714,39 @@ class ShipstationConnection:
                 'appid': api_key
             }
 
-            response = requests.get(base_url, params=params)
+            print(f"Requesting weather from {base_url} with params: {params}")
+            response = requests.get(base_url, params=params, timeout=15)
 
             if response.status_code != 200:
-                print(f"Failed to get weather data: {response.text}")
+                print(f"Failed to get weather data: HTTP {response.status_code} - {response.text}")
                 return None
 
-            forecast_data = response.json()
+            try:
+                forecast_data = response.json()
+            except Exception as e:
+                print(f"Failed to parse weather JSON response: {e}")
+                print(f"Raw response text: {response.text[:500]}")
+                return None
+
             high_temperatures = []
 
-            for entry in forecast_data['list']:
-                high_temp = entry['main']['temp_max']
-                high_temperatures.append(high_temp)
+            forecast_list = forecast_data.get('list', [])
+            if not forecast_list:
+                print("Weather response JSON has no 'list' entries.")
+                return None
+
+            for entry in forecast_list:
+                try:
+                    high_temp = entry['main']['temp_max']
+                    high_temperatures.append(high_temp)
+                except KeyError as e:
+                    print(f"Missing expected key in forecast entry: {e} - entry: {entry}")
 
             average_high = round(sum(high_temperatures) / len(high_temperatures))
             print(f"Average high temperature: {average_high}°F")
             return average_high
-        except:  # This is prone to breaking, so if all else fails just return 60
+        except Exception as e:  # This is prone to breaking, so if all else fails just return 60
+            print(f"Unhandled error getting temperature high for ZIP {zip_code}: {e}")
             return 60
 
     def determine_best_shipping(self, order):
