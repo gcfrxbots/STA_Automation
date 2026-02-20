@@ -116,6 +116,13 @@ INCREASE_WEIGHT = 6
 THREE_DAY_UPGRADE_PERCENTAGE = 20  # Upgrade to 3 Day if cost is less than X% of order
 TWO_DAY_UPGRADE_PERCENTAGE = 25    # Upgrade to 2 Day if cost is less than X% of order
 
+# Allowed SKU patterns for Swiftprint orders
+ALLOWED_SWIFTPRINT_SKUS = [
+    "HEXALINK",
+    "HEXAMOSS",
+    "MAGNETS"
+]
+
 # =============================================================================
 
 def loadConfigFromFile():
@@ -410,9 +417,22 @@ class ShipstationConnection:
             return []
 
         orders = response.json().get('orders', [])
-        self.ordersInQueue = len(orders)
+
+        ignoreTagId = 47785
+        filteredOrders = []
+
+        for order in orders:
+            orderTags = order.get('tagIds') or []
+
+            if ignoreTagId in orderTags:
+                print(f"Skipping order {order.get('orderNumber')} with ignore tag {ignoreTagId}")
+                continue
+
+            filteredOrders.append(order)
+
+        self.ordersInQueue = len(filteredOrders)
         print(f"Found {self.ordersInQueue} orders awaiting shipment")
-        return orders
+        return filteredOrders
 
     def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, shipping_service=None, notes=None, warehouse_id=None):
         url = f'{self.base_url}orders/createorder'
@@ -537,8 +557,7 @@ class ShipstationConnection:
                 return False
         return True
 
-    def _order_all_skus_hexalink(self, order):
-        """Return True if every item has a SKU containing 'HEXALINK' (case-insensitive)."""
+    def swiftprintSKUcheck(self, order):
         items = order.get('items') or []
         # Only consider items that actually have a SKU
         sku_items = [item for item in items if item.get('sku')]
@@ -546,7 +565,7 @@ class ShipstationConnection:
             return False
         for item in sku_items:
             sku = item.get('sku', '').upper()
-            if "HEXALINK" not in sku:
+            if not any(allowed in sku for allowed in ALLOWED_SWIFTPRINT_SKUS):
                 return False
         return True
 
@@ -1104,7 +1123,7 @@ class ShipstationConnection:
                 shipByDays = -5
 
             # User assignment and warehouse:
-            # - Swiftprint orders: 100% 3D print AND all SKUs contain 'HEXALINK'
+            # - Swiftprint orders: 100% 3D print AND all SKUs contain 'HEXALINK' or 'HEXAMOSS'
             #   -> Swiftprint user + Swiftprint tag + Swiftprint warehouse
             # - All other orders -> standard user, default warehouse
             USER_ID_SWIFTPRINT = "ed89bcc1-63d1-4e96-a117-3e0d9c9457c0"
@@ -1112,14 +1131,14 @@ class ShipstationConnection:
             TAG_ID_SWIFTPRINT = 47785
             WAREHOUSE_ID_SWIFTPRINT = 550283
             entirely_3d = self.is_order_entirely_3d_print(order)
-            all_hexalink = self._order_all_skus_hexalink(order)
+            isSwiftprintSKU = self.swiftprintSKUcheck(order)
 
-            if entirely_3d and all_hexalink:
+            if entirely_3d and isSwiftprintSKU:
                 assignee_user_id = USER_ID_SWIFTPRINT
                 warehouse_id = WAREHOUSE_ID_SWIFTPRINT
                 if TAG_ID_SWIFTPRINT not in tags:
                     tags.append(TAG_ID_SWIFTPRINT)
-                    print("Order is Swiftprint: 100% 3D print and all SKUs contain HEXALINK - adding Swiftprint tag, user, and warehouse")
+                    print("Order is Swiftprint: 100% 3D print and all SKUs contain HEXALINK or HEXAMOSS - adding Swiftprint tag, user, and warehouse")
             else:
                 assignee_user_id = USER_ID_HAS_NON_3D
                 warehouse_id = None
