@@ -120,7 +120,9 @@ TWO_DAY_UPGRADE_PERCENTAGE = 25    # Upgrade to 2 Day if cost is less than X% of
 ALLOWED_SWIFTPRINT_SKUS = [
     "HEXALINK",
     "HEXAMOSS",
-    "MAGNETS"
+    "MAGNETS",
+    "PROPTUBE",
+    "HEXAPLANTER"
 ]
 
 # =============================================================================
