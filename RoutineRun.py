@@ -1133,7 +1133,7 @@ class ShipstationConnection:
                 shipByDays = -5
 
             # User assignment and warehouse:
-            # - Swiftprint orders: 100% 3D print AND all SKUs contain 'HEXALINK' or 'HEXAMOSS'
+            # - Swiftprint orders: 100% 3D print
             #   -> Swiftprint user + Swiftprint tag + Swiftprint warehouse
             # - All other orders -> standard user, default warehouse
             USER_ID_SWIFTPRINT = "ed89bcc1-63d1-4e96-a117-3e0d9c9457c0"
@@ -1141,14 +1141,13 @@ class ShipstationConnection:
             TAG_ID_SWIFTPRINT = 47785
             WAREHOUSE_ID_SWIFTPRINT = 550283
             entirely_3d = self.is_order_entirely_3d_print(order)
-            isSwiftprintSKU = self.swiftprintSKUcheck(order)
 
-            if entirely_3d and isSwiftprintSKU:
+            if entirely_3d:
                 assignee_user_id = USER_ID_SWIFTPRINT
                 warehouse_id = WAREHOUSE_ID_SWIFTPRINT
                 if TAG_ID_SWIFTPRINT not in tags:
                     tags.append(TAG_ID_SWIFTPRINT)
-                    print("Order is Swiftprint: 100% 3D print and all SKUs contain HEXALINK or HEXAMOSS - adding Swiftprint tag, user, and warehouse")
+                    print("Order is Swiftprint: 100% 3D print - adding Swiftprint tag, user, and warehouse")
             else:
                 assignee_user_id = USER_ID_HAS_NON_3D
                 warehouse_id = None
