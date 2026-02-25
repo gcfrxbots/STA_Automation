@@ -609,23 +609,31 @@ class ShipstationConnection:
         return living_items
 
     def is_replacement_order(self, order):
-        if order.get('tagIds', []):
-            if 30806 in order.get('tagIds', []):
-                print(f"Order {order['orderNumber']} marked as replacement (tag 30806)")
-                return True
+        tagIds = order.get('tagIds') or []
 
-            if 25911 in order.get('tagIds', []) or 26005 in order.get('tagIds', []):
-                print(f"Order {order['orderNumber']} already processed as replacement")
-                return False
+        if 30806 in tagIds:
+            print(f"Order {order['orderNumber']} marked as replacement (tag 30806)")
+            return True
 
-        if not order['paymentDate']:
+        if 25911 in tagIds or 26005 in tagIds:
+            print(f"Order {order['orderNumber']} already processed as replacement")
+            return False
+
+        advancedOptions = order.get('advancedOptions') or {}
+        orderSource = (advancedOptions.get('source') or '').lower()
+
+        if 'ebay' in orderSource:
+            print(f"Order {order['orderNumber']} is from eBay - skipping automatic replacement detection")
+            return False
+
+        if not order.get('paymentDate'):
             print(f"Order {order['orderNumber']} has no payment date - treating as replacement")
             return True
 
-        payment_date = datetime.strptime(order['paymentDate'], "%Y-%m-%dT%H:%M:%S.%f000")
-        order_date = datetime.strptime(order['orderDate'], "%Y-%m-%dT%H:%M:%S.%f000")
+        paymentDate = datetime.strptime(order['paymentDate'], "%Y-%m-%dT%H:%M:%S.%f000")
+        orderDate = datetime.strptime(order['orderDate'], "%Y-%m-%dT%H:%M:%S.%f000")
 
-        if payment_date < order_date:
+        if paymentDate < orderDate:
             print(f"Order {order['orderNumber']} payment date before order date - marking as replacement")
             return True
         return False
