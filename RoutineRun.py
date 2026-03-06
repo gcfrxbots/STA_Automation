@@ -790,6 +790,21 @@ class ShipstationConnection:
         tags = order.get('tagIds', []) or []
         hasPlants = 43020 in tags
         isImpatient = 30832 in tags
+        orderTotalRaw = order.get('orderTotal')
+        orderTotal = None
+        isHighValue = False
+
+        if isinstance(orderTotalRaw, (int, float)):
+            orderTotal = float(orderTotalRaw)
+        elif isinstance(orderTotalRaw, str):
+            try:
+                orderTotal = float(orderTotalRaw)
+            except ValueError:
+                orderTotal = None
+
+        if orderTotal is not None and orderTotal > 75:
+            isHighValue = True
+            print(f"Order total ${orderTotal:.2f} is above $75 - marking as expedited")
         
         # Check if any item has SKU "EXPEDITE"
         hasExpediteSku = False
@@ -837,7 +852,7 @@ class ShipstationConnection:
             return "usps_ground_advantage", "", temperature_high, -4
 
         # Determine if expedite logic should be applied
-        shouldApplyExpedite = requestedHasExpedite or hasExpediteSku
+        shouldApplyExpedite = requestedHasExpedite or hasExpediteSku or isHighValue
         
         if shouldApplyExpedite:
             print("Order is expedited!")
