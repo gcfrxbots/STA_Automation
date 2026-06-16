@@ -419,22 +419,9 @@ class ShipstationConnection:
             return []
 
         orders = response.json().get('orders', [])
-
-        ignoreTagId = 47785
-        filteredOrders = []
-
-        for order in orders:
-            orderTags = order.get('tagIds') or []
-
-            if ignoreTagId in orderTags:
-                print(f"Skipping order {order.get('orderNumber')} with ignore tag {ignoreTagId}")
-                continue
-
-            filteredOrders.append(order)
-
-        self.ordersInQueue = len(filteredOrders)
+        self.ordersInQueue = len(orders)
         print(f"Found {self.ordersInQueue} orders awaiting shipment")
-        return filteredOrders
+        return orders
 
     def update_order(self, order_id, order_key, order_number, order_date, order_status, bill_to, ship_to, items, tags, storeId, weight, temp, shipByDays, email, source, requestedShipping, shipping_service=None, notes=None, warehouse_id=None):
         url = f'{self.base_url}orders/createorder'
@@ -608,45 +595,45 @@ class ShipstationConnection:
         print(f"Kept {len(living_items)} living items")
         return living_items
 
-    def is_replacement_order(self, order):
-        tagIds = order.get('tagIds') or []
-
-        if 30806 in tagIds:
-            print(f"Order {order['orderNumber']} marked as replacement (tag 30806)")
-            return True
-
-        if 25911 in tagIds or 26005 in tagIds:
-            print(f"Order {order['orderNumber']} already processed as replacement")
-            return False
-
-        advancedOptions = order.get('advancedOptions') or {}
-        orderSource = (advancedOptions.get('source') or '').lower()
-
-        if 'ebay' in orderSource:
-            print(f"Order {order['orderNumber']} is from eBay - skipping automatic replacement detection")
-            return False
-
-        if not order.get('paymentDate'):
-            print(f"Order {order['orderNumber']} has no payment date - treating as replacement")
-            return True
-
-        paymentDate = datetime.strptime(order['paymentDate'], "%Y-%m-%dT%H:%M:%S.%f000")
-        orderDate = datetime.strptime(order['orderDate'], "%Y-%m-%dT%H:%M:%S.%f000")
-
-        if paymentDate < orderDate:
-            print(f"Order {order['orderNumber']} payment date before order date - marking as replacement")
-            return True
-        return False
-
-    def _is_reship_or_replacement_order(self, order, tags):
-        """True if order is already a replacement (-R) or reship: apply replacement behavior without cancel/create."""
-        tag_list = tags if tags is not None else order.get('tagIds') or []
-        if 25911 in tag_list or 26005 in tag_list:
-            return True
-        order_number = (order.get('orderNumber') or '').strip()
-        if order_number.endswith('-R'):
-            return True
-        return False
+    # def is_replacement_order(self, order):
+    #     tagIds = order.get('tagIds') or []
+    #
+    #     if 30806 in tagIds:
+    #         print(f"Order {order['orderNumber']} marked as replacement (tag 30806)")
+    #         return True
+    #
+    #     if 25911 in tagIds or 26005 in tagIds:
+    #         print(f"Order {order['orderNumber']} already processed as replacement")
+    #         return False
+    #
+    #     advancedOptions = order.get('advancedOptions') or {}
+    #     orderSource = (advancedOptions.get('source') or '').lower()
+    #
+    #     if 'ebay' in orderSource:
+    #         print(f"Order {order['orderNumber']} is from eBay - skipping automatic replacement detection")
+    #         return False
+    #
+    #     if not order.get('paymentDate'):
+    #         print(f"Order {order['orderNumber']} has no payment date - treating as replacement")
+    #         return True
+    #
+    #     paymentDate = datetime.strptime(order['paymentDate'], "%Y-%m-%dT%H:%M:%S.%f000")
+    #     orderDate = datetime.strptime(order['orderDate'], "%Y-%m-%dT%H:%M:%S.%f000")
+    #
+    #     if paymentDate < orderDate:
+    #         print(f"Order {order['orderNumber']} payment date before order date - marking as replacement")
+    #         return True
+    #     return False
+    #
+    # def _is_reship_or_replacement_order(self, order, tags):
+    #     """True if order is already a replacement (-R) or reship: apply replacement behavior without cancel/create."""
+    #     tag_list = tags if tags is not None else order.get('tagIds') or []
+    #     if 25911 in tag_list or 26005 in tag_list:
+    #         return True
+    #     order_number = (order.get('orderNumber') or '').strip()
+    #     if order_number.endswith('-R'):
+    #         return True
+    #     return False
 
     def get_ups_time_in_transit(self, access_token, origin_zip, destination_zip, weight_lbs):
         shipping_weight = 0.5
@@ -1113,24 +1100,24 @@ class ShipstationConnection:
                 print(f"Using default service: {self.shipping_service}")
                 selected_service = self.shipping_service
 
-            if self.is_replacement_order(order):
-                tags.append(25911)
-                if 30806 in tags:
-                    tags.remove(30806)
-                    print("Removed replacement processing flag")
-                self.cancel_order(orderId)
-                shipByDays = -5
-                orderKey = None
-                orderId = None
-                orderNumber = f"{orderNumber}-R"
-                orderDate = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S.%f000")
-                notes += " [REPLACEMENT]"
-            elif self._is_reship_or_replacement_order(order, tags):
-                # Already a replacement (-R) or reshipped order: apply same replacement behavior without cancel/create
-                shipByDays = -5
-                if " [REPLACEMENT]" not in notes:
-                    notes += " [REPLACEMENT]"
-                print("Order is reship/replacement - applying replacement behavior (ship by -5, [REPLACEMENT])")
+            # if self.is_replacement_order(order):
+            #     tags.append(25911)
+            #     if 30806 in tags:
+            #         tags.remove(30806)
+            #         print("Removed replacement processing flag")
+            #     self.cancel_order(orderId)
+            #     shipByDays = -5
+            #     orderKey = None
+            #     orderId = None
+            #     orderNumber = f"{orderNumber}-R"
+            #     orderDate = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%S.%f000")
+            #     notes += " [REPLACEMENT]"
+            # elif self._is_reship_or_replacement_order(order, tags):
+            #     # Already a replacement (-R) or reshipped order: apply same replacement behavior without cancel/create
+            #     shipByDays = -5
+            #     if " [REPLACEMENT]" not in notes:
+            #         notes += " [REPLACEMENT]"
+            #     print("Order is reship/replacement - applying replacement behavior (ship by -5, [REPLACEMENT])")
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=4) < datetime.now():
                 print("Late order!")
@@ -1163,6 +1150,22 @@ class ShipstationConnection:
                 if TAG_ID_SWIFTPRINT not in tags:
                     tags.append(TAG_ID_SWIFTPRINT)
                     print("Order is Swiftprint: 100% 3D print - adding Swiftprint tag, user, and warehouse")
+
+                parsedOrderDate = datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000")
+
+                if parsedOrderDate + timedelta(days=6) <= datetime.now():
+                    if 31803 not in tags:
+                        tags.append(31803)
+                        print("SwiftPrint order is late - adding tag 31803")
+                    if 47018 not in tags:
+                        tags.append(47018)
+                        print("SwiftPrint order is 6+ days old - adding LATE SHIP ASAP tag 47018")
+                    shipByDays = -5
+                elif parsedOrderDate + timedelta(days=4) < datetime.now():
+                    if 31803 not in tags:
+                        tags.append(31803)
+                        print("SwiftPrint order is late - adding tag 31803")
+                        shipByDays -= 1
             else:
                 assignee_user_id = USER_ID_HAS_NON_3D
                 warehouse_id = None
