@@ -455,9 +455,9 @@ class ShipstationConnection:
                 "length": 8.0,
                 "width": 6.0,
                 "height": 4.0,
-                "packageCode": "standard_box"
+                "packageCode": "custom_standard_box"
             }
-            package_code = "standard_box"
+            package_code = "custom_standard_box"
         else:
             dimensions = {
                 "units": "inches",
@@ -505,7 +505,8 @@ class ShipstationConnection:
         response = requests.post(url, headers=self.headers, json=data)
         
         if response.status_code != 200:
-            print(f"Failed to update order: {response.text}")
+            print(f"Failed to update order: HTTP {response.status_code} - {response.text}")
+            print(f"Request Payload: {json.dumps(data)}")
             return False
 
         print(f"Successfully updated order {order_number}")
@@ -805,7 +806,7 @@ class ShipstationConnection:
             order['dimensions']['length'] = 8.0
             order['dimensions']['width'] = 6.0
             order['dimensions']['height'] = 4.0
-            order['dimensions']['packageCode'] = 'standard_box'
+            order['dimensions']['packageCode'] = 'custom_standard_box'
             
             if isinstance(order.get('weight'), dict):
                 order['weight']['units'] = 'ounces'
