@@ -427,7 +427,14 @@ class ShipstationConnection:
         url = f'{self.base_url}orders/createorder'
         ship_by_date = (datetime.strptime(order_date, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=(5 + shipByDays))).strftime('%Y-%m-%d')
         isUSPS = bool(shipping_service and shipping_service.startswith("usps_"))
-        carrier_code = "stamps_com" if isUSPS else "ups_walleted"
+        isGlobalPost = bool(shipping_service and shipping_service.startswith("globalpost"))
+        
+        if isUSPS:
+            carrier_code = "stamps_com"
+        elif isGlobalPost:
+            carrier_code = "globalpost"
+        else:
+            carrier_code = "ups_walleted"
         
         print(f"\nUpdating order {order_number}:")
         print(f"Carrier: {carrier_code}")
@@ -439,13 +446,27 @@ class ShipstationConnection:
         if notes:
             print(f"Notes: {notes}")
         
-        dimensions = {
-            "units": "inches",
-            "length": 8.0,
-            "width": 6.0,
-            "height": 4.0,
-            "packageCode": "package"
-        }
+        country = (ship_to or {}).get('country', '').strip().upper()
+        is_intl = country != '' and country != 'US'
+        
+        if is_intl:
+            dimensions = {
+                "units": "inches",
+                "length": 8.0,
+                "width": 6.0,
+                "height": 4.0,
+                "packageCode": "standard_box"
+            }
+            package_code = "standard_box"
+        else:
+            dimensions = {
+                "units": "inches",
+                "length": 8.0,
+                "width": 6.0,
+                "height": 4.0,
+                "packageCode": "package"
+            }
+            package_code = "package"
         
         # Use custom package by ID for USPS
         
@@ -465,7 +486,7 @@ class ShipstationConnection:
             "weight": weight,
             "carrierCode": carrier_code,
             "serviceCode": shipping_service,
-            "packageCode": "package",
+            "packageCode": package_code,
             "requestedShippingService": requestedShipping,
             "customerEmail": email,
             "dimensions": dimensions,
@@ -772,6 +793,26 @@ class ShipstationConnection:
             return 60
 
     def determine_best_shipping(self, order):
+        # Check if international (Outside of the united states)
+        country = (order.get('shipTo', {}).get('country') or '').strip().upper()
+        is_intl = country != '' and country != 'US'
+        
+        if is_intl:
+            print(f"Order {order['orderNumber']} is INTERNATIONAL ({country})")
+            if not order.get('dimensions'):
+                order['dimensions'] = {}
+            order['dimensions']['units'] = 'inches'
+            order['dimensions']['length'] = 8.0
+            order['dimensions']['width'] = 6.0
+            order['dimensions']['height'] = 4.0
+            order['dimensions']['packageCode'] = 'standard_box'
+            
+            if isinstance(order.get('weight'), dict):
+                order['weight']['units'] = 'ounces'
+                order['weight']['value'] = 6
+                
+            return "globalpost_economy_single_piece", "", 60, -1
+
         # USPS only
         requested = order.get('requestedShippingService') or ""
         tags = order.get('tagIds', []) or []
@@ -1071,6 +1112,14 @@ class ShipstationConnection:
             tags = order.get('tagIds', [])
             if not tags:
                 tags = []
+            
+            # Apply INTL tag (tagId 51916) for international orders
+            country = (order.get('shipTo', {}).get('country') or '').strip().upper()
+            is_intl = country != '' and country != 'US'
+            if is_intl:
+                if 51916 not in tags:
+                    tags.append(51916)
+                    print(f"International order ({country}) - applying INTL tag (tagId 51916)")
             
             # Check for 3D printed items and tag if found
             has3DPrint = self.has3DPrintedItems(order)
