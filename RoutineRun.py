@@ -1109,13 +1109,17 @@ class ShipstationConnection:
             print(f"Items: {len(order['items'])}")
             print(f"Weight: {order['weight']['value']} {order['weight']['units']}")
 
+            # Apply INTL tag (tagId 51916) for international orders
+            country = (order.get('shipTo', {}).get('country') or '').strip().upper()
+            print("Country: " + str(country))
+            is_intl = country != '' and country != 'US'
+            print("IsIntl: " + str(is_intl))
+            print(f"Checking if international... {'yes' if is_intl else 'no'}")
+
             tags = order.get('tagIds', [])
             if not tags:
                 tags = []
             
-            # Apply INTL tag (tagId 51916) for international orders
-            country = (order.get('shipTo', {}).get('country') or '').strip().upper()
-            is_intl = country != '' and country != 'US'
             if is_intl:
                 if 51916 not in tags:
                     tags.append(51916)
