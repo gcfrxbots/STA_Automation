@@ -449,25 +449,16 @@ class ShipstationConnection:
         country = (ship_to or {}).get('country', '').strip().upper()
         is_intl = country != '' and country != 'US'
         
-        if is_intl:
-            dimensions = {
-                "units": "inches",
-                "length": 8.0,
-                "width": 6.0,
-                "height": 4.0,
-                "packageCode": "custom_standard_box"
-            }
-            package_code = "custom_standard_box"
-        else:
-            dimensions = {
-                "units": "inches",
-                "length": 8.0,
-                "width": 6.0,
-                "height": 4.0,
-                "packageCode": "package"
-            }
-            package_code = "package"
-        
+
+        dimensions = {
+            "units": "inches",
+            "length": 8.0,
+            "width": 6.0,
+            "height": 4.0,
+            "packageCode": "package"
+        }
+        package_code = "package"
+    
         # Use custom package by ID for USPS
         
         # Add Custom Field 3 if plant tag present
