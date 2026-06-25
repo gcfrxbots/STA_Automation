@@ -785,26 +785,6 @@ class ShipstationConnection:
             return 60
 
     def determine_best_shipping(self, order):
-        # Check if international (Outside of the united states)
-        country = (order.get('shipTo', {}).get('country') or '').strip().upper()
-        is_intl = country != '' and country != 'US'
-        
-        if is_intl:
-            print(f"Order {order['orderNumber']} is INTERNATIONAL ({country})")
-            if not order.get('dimensions'):
-                order['dimensions'] = {}
-            order['dimensions']['units'] = 'inches'
-            order['dimensions']['length'] = 8.0
-            order['dimensions']['width'] = 6.0
-            order['dimensions']['height'] = 4.0
-            order['dimensions']['packageCode'] = 'custom_standard_box'
-            
-            if isinstance(order.get('weight'), dict):
-                order['weight']['units'] = 'ounces'
-                order['weight']['value'] = 6
-                
-            return "globalpost_economy_single_piece", "", 60, -1
-
         # USPS only
         requested = order.get('requestedShippingService') or ""
         tags = order.get('tagIds', []) or []
@@ -1114,8 +1094,20 @@ class ShipstationConnection:
             
             if is_intl:
                 if 51916 not in tags:
-                    tags.append(51916)
                     print(f"International order ({country}) - applying INTL tag (tagId 51916)")
+                    url = f'{self.base_url}orders/addtag'
+                    tag_data = {"orderId": order['orderId'], "tagId": 51916}
+                    response = requests.post(url, headers=self.headers, json=tag_data)
+                    if response.status_code != 200:
+                        print(f"Failed to tag order {order['orderNumber']}: {response.text}")
+                    else:
+                        print(f"Successfully tagged order {order['orderNumber']} with tag 51916")
+                else:
+                    print(f"International order ({country}) already has INTL tag (tagId 51916)")
+                print("\n" + "="*30)
+                print("END OF ORDER")
+                print("="*30)
+                continue
             
             # Check for 3D printed items and tag if found
             has3DPrint = self.has3DPrintedItems(order)
