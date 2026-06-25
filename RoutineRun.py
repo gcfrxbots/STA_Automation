@@ -432,7 +432,7 @@ class ShipstationConnection:
         if isUSPS:
             carrier_code = "stamps_com"
         elif isGlobalPost:
-            carrier_code = "globalpost"
+            carrier_code = "stamps_com"
         else:
             carrier_code = "ups_walleted"
         
