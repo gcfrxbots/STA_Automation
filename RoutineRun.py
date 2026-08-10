@@ -848,6 +848,14 @@ class ShipstationConnection:
         # Check if requested service is USPS Priority
         requestedIsPriority = "Priority" in requested
 
+        EXPEDITE_TAG_ID = 19055
+        shouldApplyExpedite = (
+            requestedHasExpedite
+            or hasExpediteSku
+            or isHighValue
+            or EXPEDITE_TAG_ID in tags
+        )
+
         # normalize dimensions
         if not order.get('dimensions'):
             order['dimensions'] = {}
@@ -871,17 +879,21 @@ class ShipstationConnection:
         else:
             print(f"Temperature at destination: {temperature_high}°F")
 
-        # Plant tag forces USPS Priority and -3 days
+        # Plant tag forces USPS Priority; expedited plant orders ship sooner
         if hasPlants:
-            return "usps_priority_mail", "", temperature_high, -3
+            if shouldApplyExpedite:
+                print("Order is expedited plant order - using USPS Priority with expedited ship by")
+                self.expedite = True
+                self.tag_order(order, "expedite")
+                shipByDays = -7
+            else:
+                shipByDays = -3
+            return "usps_priority_mail", "", temperature_high, shipByDays
 
         # Impatient tag advances ship by date by 4 days
         if isImpatient:
             return "usps_ground_advantage", "", temperature_high, -4
 
-        # Determine if expedite logic should be applied
-        shouldApplyExpedite = requestedHasExpedite or hasExpediteSku or isHighValue
-        
         if shouldApplyExpedite:
             print("Order is expedited!")
             self.expedite = True
