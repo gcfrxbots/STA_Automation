@@ -532,6 +532,34 @@ class ShipstationConnection:
         print("No 3D printed items found in order")
         return False
 
+    def hasPlants(self, order):
+        print(f"Checking if order {order['orderNumber']} contains Plant items...")
+
+        for item in order['items']:
+            if item['sku']:
+                productDetails = self.get_product_details(item['sku'])
+                if not productDetails:
+                    print(f"Could not fetch details for SKU {item['sku']}")
+                    continue
+
+                print(f"Product details for {item['sku']}: {productDetails.get('name', 'Unknown')}")
+                categories = productDetails.get('productCategory', [])
+                print(f"Categories: {categories}")
+
+                if isinstance(categories, dict):
+                    if "Plant" in categories.values():
+                        print(f"Item {item['sku']} is a plant")
+                        return True
+                elif isinstance(categories, list):
+                    if "Plant" in categories:
+                        print(f"Item {item['sku']} is a plant")
+                        return True
+            else:
+                print(f"Skipping item without SKU: {item.get('name', 'Unknown')}")
+
+        print("No plant items found in order")
+        return False
+
     def _item_is_3d_print(self, item):
         """Return True if this item has a SKU and is in the 3D Print category."""
         sku = item.get('sku')
@@ -1119,6 +1147,18 @@ class ShipstationConnection:
                     print("Order already tagged with 3D print tag")
             else:
                 print("Order does not contain 3D printed items")
+
+            hasPlants = self.hasPlants(order)
+            if hasPlants:
+                if 43020 not in tags:
+                    tags.append(43020)
+                    print("Order contains plant items - adding Plants tag 43020")
+                else:
+                    print("Order already tagged with Plants tag")
+            else:
+                print("Order does not contain plant items")
+
+            order['tagIds'] = tags
             
             items = order['items']
             orderKey = order['orderKey']
