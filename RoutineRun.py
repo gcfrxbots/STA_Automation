@@ -1197,6 +1197,8 @@ class ShipstationConnection:
             if not tags:
                 tags = []
             
+            orderDate = order['orderDate']
+
             if is_intl:
                 if TAG_IDS["Intl"] not in tags:
                     print(f"International order ({country}) - applying INTL tag (tagId {TAG_IDS['Intl']})")
@@ -1221,6 +1223,29 @@ class ShipstationConnection:
                         tags.append(TAG_IDS["Cancel"])
                 elif TAG_IDS["Cancel"] in tags:
                     print(f"International order already has CANCEL tag (tagId {TAG_IDS['Cancel']})")
+
+                # Check for late orders on international orders as well
+                is_expedited = (TAG_IDS["Expedite"] in tags) or (TAG_IDS["Impatient"] in tags)
+                late_threshold_days = 2 if is_expedited else 4
+                late_ship_asap_threshold_days = 3 if is_expedited else 6
+
+                parsedOrderDate = datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000")
+
+                if parsedOrderDate + timedelta(days=late_threshold_days) < datetime.now():
+                    if TAG_IDS["Late"] not in tags:
+                        print(f"International order is late ({late_threshold_days}+ days) - adding tag {TAG_IDS['Late']}")
+                        if self.AddOrderTagById(order, TAG_IDS["Late"]):
+                            tags.append(TAG_IDS["Late"])
+                    else:
+                        print("International order already tagged with Late tag")
+
+                if parsedOrderDate + timedelta(days=late_ship_asap_threshold_days) <= datetime.now():
+                    if TAG_IDS["LateShipAsap"] not in tags:
+                        print(f"International order is {late_ship_asap_threshold_days}+ days old - adding LATE SHIP ASAP tag {TAG_IDS['LateShipAsap']}")
+                        if self.AddOrderTagById(order, TAG_IDS["LateShipAsap"]):
+                            tags.append(TAG_IDS["LateShipAsap"])
+                    else:
+                        print(f"International order already tagged with LateShipAsap tag {TAG_IDS['LateShipAsap']}")
 
                 print("\n" + "="*30)
                 print("END OF ORDER")
