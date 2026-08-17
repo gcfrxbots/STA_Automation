@@ -125,6 +125,19 @@ ALLOWED_SWIFTPRINT_SKUS = [
     "HEXAPLANTER"
 ]
 
+TAG_IDS = {
+    "Intl": 51916,
+    "Plants": 43020,
+    "Cancel": 53069,
+    "Expedite": 19055,
+    "3Dprint": 43864,
+    "Late": 31803,
+    "LateShipAsap": 47018,
+    "Swiftprint": 47785,
+    "Impatient": 30832,
+    "Replacement": 25911,
+}
+
 # =============================================================================
 
 def loadConfigFromFile():
@@ -354,16 +367,31 @@ class ShipstationConnection:
         print(f"Total ShipStation products fetched: {len(allProducts)}")
         return allProducts
 
+    def AddOrderTagById(self, order, tagId):
+        url = f'{self.base_url}orders/addtag'
+        tagData = {"orderId": order['orderId'], "tagId": tagId}
+        response = requests.post(url, headers=self.headers, json=tagData)
+        if response.status_code != 200:
+            print(f"Failed to tag order {order['orderNumber']} with tag {tagId}: {response.text}")
+            return False
+        print(f"Successfully tagged order {order['orderNumber']} with tag {tagId}")
+        return True
+
+    def HasFishitSku(self, order):
+        for item in order.get('items', []):
+            sku = (item.get('sku') or '').upper()
+            if "FISHIT" in sku:
+                print(f"Order contains FISHIT SKU: {item.get('sku')}")
+                return True
+        return False
+
     def tag_order(self, order, tag):
         # tag_order disabled for nonliving and USPS
         if tag not in ("expedite",):
             return
         print(f"Adding tag '{tag}' to order {order['orderNumber']}")
-        tags = {
-            "expedite": "19055"
-        }
         url = f'{self.base_url}orders/addtag'
-        tag_data = {"orderId": order['orderId'], "tagId": tags[tag]}
+        tag_data = {"orderId": order['orderId'], "tagId": TAG_IDS["Expedite"]}
         response = requests.post(url, headers=self.headers, json=tag_data)
         if response.status_code != 200:
             print(f'Failed to tag order {order["orderNumber"]}: {response.text}')
@@ -463,7 +491,7 @@ class ShipstationConnection:
         
         # Add Custom Field 3 if plant tag present
         tags_list = tags or []
-        customField3Value = "CONTAINS PLANTS" if (43020 in tags_list) else None
+        customField3Value = "CONTAINS PLANTS" if (TAG_IDS["Plants"] in tags_list) else None
 
         data = {
             "orderKey": order_key,
@@ -560,6 +588,48 @@ class ShipstationConnection:
         print("No plant items found in order")
         return False
 
+    def get_destination_temperature(self, zip_code):
+        """Get the average 5-day forecast temperature for a given US ZIP code using self.openWeatherAPIKey"""
+        if not self.openWeatherAPIKey:
+            print("No OpenWeather API key available - skipping temperature check")
+            return None
+        
+        clean_zip = str(zip_code).strip()
+        if '-' in clean_zip:
+            clean_zip = clean_zip.split('-')[0]
+        clean_zip = ''.join(c for c in clean_zip if c.isdigit())
+        if len(clean_zip) != 5:
+            print(f"Invalid US ZIP code format: {zip_code} - skipping temperature check")
+            return None
+
+        try:
+            baseUrl = "http://api.openweathermap.org/data/2.5/forecast"
+            params = {
+                'zip': f'{clean_zip},US',
+                'units': 'imperial',
+                'appid': self.openWeatherAPIKey
+            }
+            response = requests.get(baseUrl, params=params, timeout=10)
+            if response.status_code != 200:
+                print(f"Failed to get weather data for ZIP {clean_zip}: HTTP {response.status_code} - {response.text[:200]}")
+                return None
+
+            forecastData = response.json()
+            temperatures = []
+            for entry in forecastData.get('list', []):
+                temp = entry.get('main', {}).get('temp')
+                if temp is not None:
+                    temperatures.append(temp)
+
+            if not temperatures:
+                return None
+
+            avgTemp = sum(temperatures) / len(temperatures)
+            return avgTemp
+        except Exception as e:
+            print(f"Error getting temperature for ZIP {zip_code}: {str(e)}")
+            return None
+
     def _item_is_3d_print(self, item):
         """Return True if this item has a SKU and is in the 3D Print category."""
         sku = item.get('sku')
@@ -639,12 +709,8 @@ class ShipstationConnection:
     # def is_replacement_order(self, order):
     #     tagIds = order.get('tagIds') or []
     #
-    #     if 30806 in tagIds:
-    #         print(f"Order {order['orderNumber']} marked as replacement (tag 30806)")
-    #         return True
-    #
-    #     if 25911 in tagIds or 26005 in tagIds:
-    #         print(f"Order {order['orderNumber']} already processed as replacement")
+    #     if TAG_IDS["Replacement"] in tagIds:
+    #         print(f"Order {order['orderNumber']} already processed as replacement (tag {TAG_IDS['Replacement']})")
     #         return False
     #
     #     advancedOptions = order.get('advancedOptions') or {}
@@ -669,7 +735,7 @@ class ShipstationConnection:
     # def _is_reship_or_replacement_order(self, order, tags):
     #     """True if order is already a replacement (-R) or reship: apply replacement behavior without cancel/create."""
     #     tag_list = tags if tags is not None else order.get('tagIds') or []
-    #     if 25911 in tag_list or 26005 in tag_list:
+    #     if TAG_IDS["Replacement"] in tag_list:
     #         return True
     #     order_number = (order.get('orderNumber') or '').strip()
     #     if order_number.endswith('-R'):
@@ -816,8 +882,8 @@ class ShipstationConnection:
         # USPS only
         requested = order.get('requestedShippingService') or ""
         tags = order.get('tagIds', []) or []
-        hasPlants = 43020 in tags
-        isImpatient = 30832 in tags
+        hasPlants = TAG_IDS["Plants"] in tags
+        isImpatient = TAG_IDS["Impatient"] in tags
         orderTotalRaw = order.get('orderTotal')
         orderTotal = None
         isHighValue = False
@@ -848,12 +914,11 @@ class ShipstationConnection:
         # Check if requested service is USPS Priority
         requestedIsPriority = "Priority" in requested
 
-        EXPEDITE_TAG_ID = 19055
         shouldApplyExpedite = (
             requestedHasExpedite
             or hasExpediteSku
             or isHighValue
-            or EXPEDITE_TAG_ID in tags
+            or TAG_IDS["Expedite"] in tags
         )
 
         # normalize dimensions
@@ -1121,7 +1186,7 @@ class ShipstationConnection:
             print(f"Items: {len(order['items'])}")
             print(f"Weight: {order['weight']['value']} {order['weight']['units']}")
 
-            # Apply INTL tag (tagId 51916) for international orders
+            # Apply INTL tag for international orders
             country = (order.get('shipTo', {}).get('country') or '').strip().upper()
             print("Country: " + str(country))
             is_intl = country != '' and country != 'US'
@@ -1133,17 +1198,30 @@ class ShipstationConnection:
                 tags = []
             
             if is_intl:
-                if 51916 not in tags:
-                    print(f"International order ({country}) - applying INTL tag (tagId 51916)")
-                    url = f'{self.base_url}orders/addtag'
-                    tag_data = {"orderId": order['orderId'], "tagId": 51916}
-                    response = requests.post(url, headers=self.headers, json=tag_data)
-                    if response.status_code != 200:
-                        print(f"Failed to tag order {order['orderNumber']}: {response.text}")
-                    else:
-                        print(f"Successfully tagged order {order['orderNumber']} with tag 51916")
+                if TAG_IDS["Intl"] not in tags:
+                    print(f"International order ({country}) - applying INTL tag (tagId {TAG_IDS['Intl']})")
+                    if self.AddOrderTagById(order, TAG_IDS["Intl"]):
+                        tags.append(TAG_IDS["Intl"])
                 else:
-                    print(f"International order ({country}) already has INTL tag (tagId 51916)")
+                    print(f"International order ({country}) already has INTL tag (tagId {TAG_IDS['Intl']})")
+
+                hasPlants = self.hasPlants(order) or TAG_IDS["Plants"] in tags
+                if hasPlants and TAG_IDS["Plants"] not in tags:
+                    print("International order contains plant items - adding Plants tag")
+                    if self.AddOrderTagById(order, TAG_IDS["Plants"]):
+                        tags.append(TAG_IDS["Plants"])
+
+                hasFishit = self.HasFishitSku(order)
+                shouldCancel = hasPlants or hasFishit
+
+                if shouldCancel and TAG_IDS["Cancel"] not in tags:
+                    reason = "INTL + PLANTS" if hasPlants else "INTL + FISHIT SKU"
+                    print(f"International order flagged for cancel ({reason}) - adding CANCEL tag (tagId {TAG_IDS['Cancel']})")
+                    if self.AddOrderTagById(order, TAG_IDS["Cancel"]):
+                        tags.append(TAG_IDS["Cancel"])
+                elif TAG_IDS["Cancel"] in tags:
+                    print(f"International order already has CANCEL tag (tagId {TAG_IDS['Cancel']})")
+
                 print("\n" + "="*30)
                 print("END OF ORDER")
                 print("="*30)
@@ -1152,9 +1230,9 @@ class ShipstationConnection:
             # Check for 3D printed items and tag if found
             has3DPrint = self.has3DPrintedItems(order)
             if has3DPrint:
-                if 43864 not in tags:
-                    tags.append(43864)
-                    print("Order contains 3D printed items - adding tag 43864")
+                if TAG_IDS["3Dprint"] not in tags:
+                    tags.append(TAG_IDS["3Dprint"])
+                    print(f"Order contains 3D printed items - adding tag {TAG_IDS['3Dprint']}")
                 else:
                     print("Order already tagged with 3D print tag")
             else:
@@ -1162,15 +1240,32 @@ class ShipstationConnection:
 
             hasPlants = self.hasPlants(order)
             if hasPlants:
-                if 43020 not in tags:
-                    tags.append(43020)
-                    print("Order contains plant items - adding Plants tag 43020")
+                if TAG_IDS["Plants"] not in tags:
+                    tags.append(TAG_IDS["Plants"])
+                    print(f"Order contains plant items - adding Plants tag {TAG_IDS['Plants']}")
                 else:
                     print("Order already tagged with Plants tag")
             else:
                 print("Order does not contain plant items")
 
             order['tagIds'] = tags
+
+            if TAG_IDS["Plants"] in tags:
+                dest_zip = order.get('shipTo', {}).get('postalCode')
+                if dest_zip:
+                    print(f"Order contains plants, checking destination temperature for ZIP: {dest_zip}")
+                    dest_temp = self.get_destination_temperature(dest_zip)
+                    if dest_temp is not None:
+                        print(f"Destination temperature for ZIP {dest_zip} is {dest_temp:.1f}°F")
+                        if dest_temp > 90 or dest_temp < 32:
+                            if TAG_IDS["Cancel"] not in tags:
+                                print(f"Destination temperature {dest_temp:.1f}°F is extreme - adding CANCEL tag (tagId {TAG_IDS['Cancel']})")
+                                if self.AddOrderTagById(order, TAG_IDS["Cancel"]):
+                                    tags.append(TAG_IDS["Cancel"])
+                            else:
+                                print(f"Order already tagged with CANCEL tag (tagId {TAG_IDS['Cancel']})")
+                    else:
+                        print(f"Could not retrieve temperature for ZIP {dest_zip}")
             
             items = order['items']
             orderKey = order['orderKey']
@@ -1190,10 +1285,7 @@ class ShipstationConnection:
                 selected_service = self.shipping_service
 
             # if self.is_replacement_order(order):
-            #     tags.append(25911)
-            #     if 30806 in tags:
-            #         tags.remove(30806)
-            #         print("Removed replacement processing flag")
+            #     tags.append(TAG_IDS["Replacement"])
             #     self.cancel_order(orderId)
             #     shipByDays = -5
             #     orderKey = None
@@ -1210,15 +1302,15 @@ class ShipstationConnection:
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=4) < datetime.now():
                 print("Late order!")
-                tags.append(31803)
+                tags.append(TAG_IDS["Late"])
                 shipByDays -= 1
 
             if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) <= datetime.now():
-                if 47018 not in tags:
-                    tags.append(47018)
-                    print("Order is 6 days or older - adding tag 47018")
+                if TAG_IDS["LateShipAsap"] not in tags:
+                    tags.append(TAG_IDS["LateShipAsap"])
+                    print(f"Order is 6 days or older - adding tag {TAG_IDS['LateShipAsap']}")
                 else:
-                    print("Order already tagged with 6+ day tag 47018")
+                    print(f"Order already tagged with 6+ day tag {TAG_IDS['LateShipAsap']}")
                 
                 # SHIP ASAP
                 shipByDays = -5
@@ -1229,31 +1321,30 @@ class ShipstationConnection:
             # - All other orders -> standard user, default warehouse
             USER_ID_SWIFTPRINT = "ed89bcc1-63d1-4e96-a117-3e0d9c9457c0"
             USER_ID_HAS_NON_3D = "c823b15b-1a0b-4569-9d73-a0082ee5ad7f"
-            TAG_ID_SWIFTPRINT = 47785
             WAREHOUSE_ID_SWIFTPRINT = 550283
             entirely_3d = self.is_order_entirely_3d_print(order)
 
             if entirely_3d:
                 assignee_user_id = USER_ID_SWIFTPRINT
                 warehouse_id = WAREHOUSE_ID_SWIFTPRINT
-                if TAG_ID_SWIFTPRINT not in tags:
-                    tags.append(TAG_ID_SWIFTPRINT)
+                if TAG_IDS["Swiftprint"] not in tags:
+                    tags.append(TAG_IDS["Swiftprint"])
                     print("Order is Swiftprint: 100% 3D print - adding Swiftprint tag, user, and warehouse")
 
                 parsedOrderDate = datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000")
 
                 if parsedOrderDate + timedelta(days=6) <= datetime.now():
-                    if 31803 not in tags:
-                        tags.append(31803)
-                        print("SwiftPrint order is late - adding tag 31803")
-                    if 47018 not in tags:
-                        tags.append(47018)
-                        print("SwiftPrint order is 6+ days old - adding LATE SHIP ASAP tag 47018")
+                    if TAG_IDS["Late"] not in tags:
+                        tags.append(TAG_IDS["Late"])
+                        print(f"SwiftPrint order is late - adding tag {TAG_IDS['Late']}")
+                    if TAG_IDS["LateShipAsap"] not in tags:
+                        tags.append(TAG_IDS["LateShipAsap"])
+                        print(f"SwiftPrint order is 6+ days old - adding LATE SHIP ASAP tag {TAG_IDS['LateShipAsap']}")
                     shipByDays = -5
                 elif parsedOrderDate + timedelta(days=4) < datetime.now():
-                    if 31803 not in tags:
-                        tags.append(31803)
-                        print("SwiftPrint order is late - adding tag 31803")
+                    if TAG_IDS["Late"] not in tags:
+                        tags.append(TAG_IDS["Late"])
+                        print(f"SwiftPrint order is late - adding tag {TAG_IDS['Late']}")
                         shipByDays -= 1
             else:
                 assignee_user_id = USER_ID_HAS_NON_3D
