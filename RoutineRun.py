@@ -1300,20 +1300,28 @@ class ShipstationConnection:
             #         notes += " [REPLACEMENT]"
             #     print("Order is reship/replacement - applying replacement behavior (ship by -5, [REPLACEMENT])")
 
-            if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=4) < datetime.now():
+            is_expedited = (TAG_IDS["Expedite"] in tags) or (TAG_IDS["Impatient"] in tags)
+            late_threshold_days = 2 if is_expedited else 4
+            late_ship_asap_threshold_days = 3 if is_expedited else 6
+            late_ship_asap_value = -8 if is_expedited else -5
+
+            parsedOrderDate = datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000")
+
+            if parsedOrderDate + timedelta(days=late_threshold_days) < datetime.now():
                 print("Late order!")
-                tags.append(TAG_IDS["Late"])
+                if TAG_IDS["Late"] not in tags:
+                    tags.append(TAG_IDS["Late"])
                 shipByDays -= 1
 
-            if datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000") + timedelta(days=6) <= datetime.now():
+            if parsedOrderDate + timedelta(days=late_ship_asap_threshold_days) <= datetime.now():
                 if TAG_IDS["LateShipAsap"] not in tags:
                     tags.append(TAG_IDS["LateShipAsap"])
-                    print(f"Order is 6 days or older - adding tag {TAG_IDS['LateShipAsap']}")
+                    print(f"Order is {late_ship_asap_threshold_days} days or older - adding tag {TAG_IDS['LateShipAsap']}")
                 else:
-                    print(f"Order already tagged with 6+ day tag {TAG_IDS['LateShipAsap']}")
+                    print(f"Order already tagged with {late_ship_asap_threshold_days}+ day tag {TAG_IDS['LateShipAsap']}")
                 
                 # SHIP ASAP
-                shipByDays = -5
+                shipByDays = late_ship_asap_value
 
             # User assignment and warehouse:
             # - Swiftprint orders: 100% 3D print
@@ -1331,17 +1339,15 @@ class ShipstationConnection:
                     tags.append(TAG_IDS["Swiftprint"])
                     print("Order is Swiftprint: 100% 3D print - adding Swiftprint tag, user, and warehouse")
 
-                parsedOrderDate = datetime.strptime(orderDate, "%Y-%m-%dT%H:%M:%S.%f000")
-
-                if parsedOrderDate + timedelta(days=6) <= datetime.now():
+                if parsedOrderDate + timedelta(days=late_ship_asap_threshold_days) <= datetime.now():
                     if TAG_IDS["Late"] not in tags:
                         tags.append(TAG_IDS["Late"])
                         print(f"SwiftPrint order is late - adding tag {TAG_IDS['Late']}")
                     if TAG_IDS["LateShipAsap"] not in tags:
                         tags.append(TAG_IDS["LateShipAsap"])
-                        print(f"SwiftPrint order is 6+ days old - adding LATE SHIP ASAP tag {TAG_IDS['LateShipAsap']}")
-                    shipByDays = -5
-                elif parsedOrderDate + timedelta(days=4) < datetime.now():
+                        print(f"SwiftPrint order is {late_ship_asap_threshold_days}+ days old - adding LATE SHIP ASAP tag {TAG_IDS['LateShipAsap']}")
+                    shipByDays = late_ship_asap_value
+                elif parsedOrderDate + timedelta(days=late_threshold_days) < datetime.now():
                     if TAG_IDS["Late"] not in tags:
                         tags.append(TAG_IDS["Late"])
                         print(f"SwiftPrint order is late - adding tag {TAG_IDS['Late']}")
