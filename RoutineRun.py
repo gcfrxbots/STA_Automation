@@ -496,7 +496,7 @@ class ShipstationConnection:
         if TAG_IDS["Swiftprint"] in tags_list:
             customField3Value = "SP3D"
         if TAG_IDS["Expedite"] in tags_list:
-            customField3Value = "EX-" + customField3Value
+            customField3Value = "X:" + customField3Value
 
         data = {
             "orderKey": order_key,
