@@ -487,11 +487,16 @@ class ShipstationConnection:
         }
         package_code = "package"
     
-        # Use custom package by ID for USPS
         
-        # Add Custom Field 3 if plant tag present
+        # Adjust Custom Field 3
         tags_list = tags or []
-        customField3Value = "CONTAINS PLANTS" if (TAG_IDS["Plants"] in tags_list) else None
+        customField3Value = "TEMP SENSITIVE"
+        if TAG_IDS["Plants"] in tags_list:
+            customField3Value = "PLANTS"
+        if TAG_IDS["SwiftPrint"] in tags_list:
+            customField3Value = "SP3D"
+        if TAG_IDS["Expedite"] in tags_list:
+            customField3Value = "EX-" + customField3Value
 
         data = {
             "orderKey": order_key,
