@@ -493,7 +493,7 @@ class ShipstationConnection:
         customField3Value = "TEMP SENSITIVE"
         if TAG_IDS["Plants"] in tags_list:
             customField3Value = "PLANTS"
-        if TAG_IDS["SwiftPrint"] in tags_list:
+        if TAG_IDS["Swiftprint"] in tags_list:
             customField3Value = "SP3D"
         if TAG_IDS["Expedite"] in tags_list:
             customField3Value = "EX-" + customField3Value
